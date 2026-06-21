@@ -51,7 +51,7 @@ func (m *Manager) Attach(ctx context.Context, next AgentSession) error {
 	m.mu.Unlock()
 
 	if replaced != nil {
-		return replaced.Close(ctx)
+		_ = replaced.Close(context.Background())
 	}
 	return nil
 }

@@ -42,6 +42,34 @@ func TestManagerAttachCurrentAndReplace(t *testing.T) {
 	}
 }
 
+func TestManagerAttachIgnoresReplacedCloseErrorAfterMutation(t *testing.T) {
+	ctx := context.Background()
+	manager := session.NewManager()
+	old := &closeErrorSession{
+		id:       "session-1",
+		deviceID: "device-1",
+		done:     make(chan struct{}),
+	}
+	next := testutil.NewFakeSession("session-2", "device-1")
+
+	if err := manager.Attach(ctx, old); err != nil {
+		t.Fatalf("Attach(old) error = %v", err)
+	}
+	if err := manager.Attach(ctx, next); err != nil {
+		t.Fatalf("Attach(next) error = %v, want nil despite old close failure", err)
+	}
+	current, err := manager.CurrentForDevice(ctx, "device-1")
+	if err != nil {
+		t.Fatalf("CurrentForDevice() error = %v", err)
+	}
+	if current.ID() != next.ID() {
+		t.Fatalf("current = %q, want %q", current.ID(), next.ID())
+	}
+	if !old.closed {
+		t.Fatalf("old session was not closed")
+	}
+}
+
 func TestManagerRejectsDuplicateSessionIDForDifferentDevice(t *testing.T) {
 	ctx := context.Background()
 	manager := session.NewManager()
@@ -67,6 +95,41 @@ func TestManagerRejectsDuplicateSessionIDForDifferentDevice(t *testing.T) {
 	if duplicate.Closed {
 		t.Fatalf("failed duplicate session should not be closed by manager")
 	}
+}
+
+type closeErrorSession struct {
+	id       domain.SessionID
+	deviceID domain.DeviceID
+	closed   bool
+	done     chan struct{}
+}
+
+func (s *closeErrorSession) ID() domain.SessionID {
+	return s.id
+}
+
+func (s *closeErrorSession) DeviceID() domain.DeviceID {
+	return s.deviceID
+}
+
+func (s *closeErrorSession) Protocol() domain.AgentProtocol {
+	return domain.AgentProtocolKAPv1
+}
+
+func (s *closeErrorSession) OpenStream(ctx context.Context, req domain.StreamOpenRequest) (session.AgentStream, error) {
+	return &testutil.FakeStream{}, nil
+}
+
+func (s *closeErrorSession) Close(ctx context.Context) error {
+	if !s.closed {
+		s.closed = true
+		close(s.done)
+	}
+	return errors.New("close failed")
+}
+
+func (s *closeErrorSession) Done() <-chan struct{} {
+	return s.done
 }
 
 func TestManagerRejectsDuplicateSessionIDForSameDeviceWithoutMutation(t *testing.T) {

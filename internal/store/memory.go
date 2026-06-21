@@ -20,6 +20,7 @@ type MemoryStore struct {
 	listeners   map[domain.ListenerRef]domain.TunnelID
 	credentials map[domain.CredentialID]domain.DeviceCredential
 	legacyIndex map[string]domain.CredentialID
+	kapv1Secret map[domain.DeviceID][]byte
 
 	now func() time.Time
 }
@@ -33,6 +34,7 @@ func NewMemoryStore() *MemoryStore {
 		listeners:   make(map[domain.ListenerRef]domain.TunnelID),
 		credentials: make(map[domain.CredentialID]domain.DeviceCredential),
 		legacyIndex: make(map[string]domain.CredentialID),
+		kapv1Secret: make(map[domain.DeviceID][]byte),
 		now:         time.Now,
 	}
 }
@@ -176,6 +178,45 @@ func (s *MemoryStore) ResolveLegacyDeviceForAuth(ctx context.Context, lookupKey 
 		return domain.Device{}, ErrDisabledDevice
 	}
 	return device, nil
+}
+
+func (s *MemoryStore) SetKAPv1DeviceSecret(ctx context.Context, deviceID domain.DeviceID, secret []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(secret) == 0 {
+		return ErrMissingSecret
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.devices[deviceID]; !ok {
+		return ErrNotFound
+	}
+	s.kapv1Secret[deviceID] = append([]byte(nil), secret...)
+	return nil
+}
+
+func (s *MemoryStore) ResolveKAPv1DeviceForAuth(ctx context.Context, deviceID domain.DeviceID) (domain.Device, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.Device{}, nil, err
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	device, ok := s.devices[deviceID]
+	if !ok {
+		return domain.Device{}, nil, ErrNotFound
+	}
+	if !device.Enabled {
+		return domain.Device{}, nil, ErrDisabledDevice
+	}
+	secret, ok := s.kapv1Secret[deviceID]
+	if !ok || len(secret) == 0 {
+		return domain.Device{}, nil, ErrMissingSecret
+	}
+	return device, append([]byte(nil), secret...), nil
 }
 
 func (s *MemoryStore) issueLegacyCredential(ctx context.Context, deviceID domain.DeviceID, serverSecret []byte, rotate bool) (IssuedLegacyCredential, error) {

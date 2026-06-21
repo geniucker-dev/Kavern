@@ -11,6 +11,7 @@ var (
 	ErrNotFound         = errors.New("not found")
 	ErrDisabledDevice   = errors.New("disabled device")
 	ErrCredentialExists = errors.New("credential already exists")
+	ErrMissingSecret    = errors.New("missing secret")
 )
 
 type IssuedLegacyCredential struct {
@@ -32,4 +33,6 @@ type Store interface {
 	RotateLegacyCredential(ctx context.Context, deviceID domain.DeviceID, serverSecret []byte) (IssuedLegacyCredential, error)
 	FindDeviceByLegacyLookupKey(ctx context.Context, lookupKey string) (domain.Device, error)
 	ResolveLegacyDeviceForAuth(ctx context.Context, lookupKey string) (domain.Device, error)
+	SetKAPv1DeviceSecret(ctx context.Context, deviceID domain.DeviceID, secret []byte) error
+	ResolveKAPv1DeviceForAuth(ctx context.Context, deviceID domain.DeviceID) (domain.Device, []byte, error)
 }

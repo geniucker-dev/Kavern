@@ -26,7 +26,10 @@ const (
 
 type CredentialKind string
 
-const CredentialKindLegacyNPC CredentialKind = "legacy_npc"
+const (
+	CredentialKindLegacyNPC         CredentialKind = "legacy_npc"
+	CredentialKindKAPv1DeviceSecret CredentialKind = "kapv1_device_secret"
+)
 
 type User struct {
 	ID   UserID

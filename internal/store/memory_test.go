@@ -162,3 +162,56 @@ func TestResolveLegacyDeviceForAuthRejectsDisabledDevice(t *testing.T) {
 		t.Fatalf("auth lookup error = %v, want ErrDisabledDevice", err)
 	}
 }
+
+func TestKAPv1DeviceSecretCopiesInputAndResolvedSecret(t *testing.T) {
+	ctx := context.Background()
+	st := store.NewMemoryStore()
+	device := domain.Device{ID: "device-1", ProjectID: "project-1", Enabled: true}
+	if err := st.CreateDevice(ctx, device); err != nil {
+		t.Fatalf("CreateDevice() error = %v", err)
+	}
+	secret := []byte("device-secret")
+	if err := st.SetKAPv1DeviceSecret(ctx, device.ID, secret); err != nil {
+		t.Fatalf("SetKAPv1DeviceSecret() error = %v", err)
+	}
+	secret[0] = 'X'
+
+	_, resolved, err := st.ResolveKAPv1DeviceForAuth(ctx, device.ID)
+	if err != nil {
+		t.Fatalf("ResolveKAPv1DeviceForAuth() error = %v", err)
+	}
+	if string(resolved) != "device-secret" {
+		t.Fatalf("resolved secret = %q, want original stored value", string(resolved))
+	}
+	resolved[0] = 'Y'
+
+	_, resolvedAgain, err := st.ResolveKAPv1DeviceForAuth(ctx, device.ID)
+	if err != nil {
+		t.Fatalf("ResolveKAPv1DeviceForAuth() second error = %v", err)
+	}
+	if string(resolvedAgain) != "device-secret" {
+		t.Fatalf("resolved secret changed through returned slice: %q", string(resolvedAgain))
+	}
+}
+
+func TestKAPv1DeviceSecretRejectsEmptySecretAndDisabledDevice(t *testing.T) {
+	ctx := context.Background()
+	st := store.NewMemoryStore()
+	enabled := domain.Device{ID: "device-1", ProjectID: "project-1", Enabled: true}
+	disabled := domain.Device{ID: "device-2", ProjectID: "project-1", Enabled: false}
+	if err := st.CreateDevice(ctx, enabled); err != nil {
+		t.Fatalf("CreateDevice(enabled) error = %v", err)
+	}
+	if err := st.CreateDevice(ctx, disabled); err != nil {
+		t.Fatalf("CreateDevice(disabled) error = %v", err)
+	}
+	if err := st.SetKAPv1DeviceSecret(ctx, enabled.ID, nil); !errors.Is(err, store.ErrMissingSecret) {
+		t.Fatalf("SetKAPv1DeviceSecret(empty) error = %v, want ErrMissingSecret", err)
+	}
+	if err := st.SetKAPv1DeviceSecret(ctx, disabled.ID, []byte("secret")); err != nil {
+		t.Fatalf("SetKAPv1DeviceSecret(disabled) error = %v", err)
+	}
+	if _, _, err := st.ResolveKAPv1DeviceForAuth(ctx, disabled.ID); !errors.Is(err, store.ErrDisabledDevice) {
+		t.Fatalf("ResolveKAPv1DeviceForAuth(disabled) error = %v, want ErrDisabledDevice", err)
+	}
+}
