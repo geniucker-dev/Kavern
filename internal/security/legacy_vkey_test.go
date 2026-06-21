@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/zhuhaoyu/kavern/internal/security"
+	"github.com/geniucker-dev/kavern/internal/security"
 )
 
 func TestGenerateVKeyUsesAtLeast32RandomBytesAndURLSafeEncoding(t *testing.T) {

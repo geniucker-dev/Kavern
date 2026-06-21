@@ -6,11 +6,11 @@ import (
 	"net"
 	"testing"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
-	"github.com/zhuhaoyu/kavern/internal/router"
-	"github.com/zhuhaoyu/kavern/internal/session"
-	"github.com/zhuhaoyu/kavern/internal/store"
-	"github.com/zhuhaoyu/kavern/internal/testutil"
+	"github.com/geniucker-dev/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/router"
+	"github.com/geniucker-dev/kavern/internal/session"
+	"github.com/geniucker-dev/kavern/internal/store"
+	"github.com/geniucker-dev/kavern/internal/testutil"
 )
 
 func TestResolveTunnelRejectsDisabledTunnel(t *testing.T) {

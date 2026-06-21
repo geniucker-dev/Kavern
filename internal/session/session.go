@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/domain"
 )
 
 type AgentStream interface {

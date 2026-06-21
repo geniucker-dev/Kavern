@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/domain"
 )
 
 func CanonicalAuthMessage(deviceID domain.DeviceID, clientNonce, serverNonce, protocolVersion, transportRole string) ([]byte, error) {

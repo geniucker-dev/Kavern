@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/domain"
 )
 
 const (

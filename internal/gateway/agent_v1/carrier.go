@@ -3,7 +3,7 @@ package agent_v1
 import (
 	"context"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/domain"
 )
 
 func (s *AuthService) BindCarrier(ctx context.Context, req CarrierBindRequest) (CarrierBinding, error) {

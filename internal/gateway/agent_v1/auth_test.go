@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
-	"github.com/zhuhaoyu/kavern/internal/session"
-	"github.com/zhuhaoyu/kavern/internal/store"
+	"github.com/geniucker-dev/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/session"
+	"github.com/geniucker-dev/kavern/internal/store"
 )
 
 func TestAuthValidChallengeResponseSucceeds(t *testing.T) {

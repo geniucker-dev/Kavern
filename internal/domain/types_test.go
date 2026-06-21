@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/domain"
 )
 
 func TestDomainHierarchy(t *testing.T) {

@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/zhuhaoyu/kavern/internal/config"
+	"github.com/geniucker-dev/kavern/internal/config"
 )
 
 func TestDefaultTLSConfigDoesNotSkipVerify(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
-	"github.com/zhuhaoyu/kavern/internal/store"
+	"github.com/geniucker-dev/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/store"
 )
 
 func TestMemoryStoreCreateAndGet(t *testing.T) {

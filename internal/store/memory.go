@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zhuhaoyu/kavern/internal/domain"
-	"github.com/zhuhaoyu/kavern/internal/security"
+	"github.com/geniucker-dev/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/security"
 )
 
 type MemoryStore struct {
