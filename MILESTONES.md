@@ -1,0 +1,177 @@
+# Kavern Milestones
+
+This milestone plan is part of Gate 0 specification review. It does not approve implementation. After Gate 0 and after every implementation gate, generated files, diffs, and test output must be reviewed before proceeding to the next gate.
+
+## Gate 0: Spec Review
+
+Review:
+
+- `AGENTS.md`
+- `docs/SPEC.md`
+- `docs/TESTING.md`
+- `docs/BENCHMARK_PLAN.md`
+- `docs/adr/*.md`
+- `MILESTONES.md`
+
+Exit criteria:
+
+- Project names are consistent: `kavern`, Kavern, `kavernd`, `kavern-agent`, `kavernctl`, KAPv1, `kavernmux`.
+- Specification states that no implementation is approved yet.
+- Legacy `npc` support is narrow and real-binary tested.
+- Review gates are explicit.
+
+## Gate 1: Core Skeleton Review
+
+Scope:
+
+- Domain.
+- Store.
+- Legacy vkey helpers.
+- `SessionManager`.
+- `TunnelRouter` skeleton.
+- Fake `AgentSession` tests.
+- Legacy npc integration test harness.
+
+Exit criteria:
+
+- `User -> Project -> Device -> Tunnel` is represented.
+- `vkey` belongs to `Device`.
+- One `Device` has at most one active `AgentSession`, and routing uses `CurrentForDevice`.
+- Carrier pool belongs inside an `AgentSession`, not multiple `AgentSession` records.
+- Legacy storage helper stores `HMAC-SHA256(server_secret, wire_token)`, not raw wire token or raw MD5.
+- Legacy `vkey` generation uses at least 32 bytes of cryptographic randomness, safe encoding, show-once lifecycle, and rotation invalidation.
+- Normal `go test ./...` requires no internet and no `NPC_BIN`.
+- Legacy integration harness is build-tagged and opt-in.
+
+## Gate 2: AgentV1 Review
+
+Scope:
+
+- KAPv1 auth.
+- `session_id`.
+- Control/data separation.
+- No MD5.
+- No `InsecureSkipVerify` default.
+- Fake data carrier tests.
+
+Exit criteria:
+
+- `internal/gateway/agent_v1` does not import or depend on legacy `npc` protocol code.
+- KAPv1 uses non-MD5 authentication.
+- Minimum KAPv1 auth flow covers `device_id`, `client_nonce`, `server_nonce`, `auth_challenge_id`, HMAC challenge response, and `session_id` issuance.
+- `device_secret` is never transmitted in plaintext.
+- `session_id` alone is not a sufficient bearer credential.
+- Data carriers bind to the authenticated control session and cannot attach to unauthenticated, expired, disabled, or replaced sessions.
+- Control and data paths are separated.
+- Tests cover auth failure and session lifecycle.
+
+## Gate 3: Carrier Pool / Mux Review
+
+Scope:
+
+- `MuxBackend` interface.
+- `smux`/`yamux` backend.
+- `max_streams_per_carrier`.
+- No infinite queue.
+- Basic backpressure.
+- Tests.
+- Dependency/license review for `smux`, `yamux`, or any mux backend.
+- No GPL, AGPL, or other copyleft dependency without explicit review.
+
+Exit criteria:
+
+- Mux backend is replaceable.
+- Third-party mux packages are hidden behind Kavern's `MuxBackend` interface.
+- Business logic does not depend directly on `smux` or `yamux` types.
+- Carrier limits are enforced.
+- Backpressure behavior is tested.
+- No design relies on one unlimited TCP mux connection.
+
+## Gate 4: `kavern-agent` TCP Echo Review
+
+Scope:
+
+- New `kavern-agent` end-to-end TCP echo.
+- No npc involved.
+- Local integration test.
+
+Exit criteria:
+
+- TCP echo works with `kavernd` and `kavern-agent`.
+- Test does not use stock `npc`.
+- Normal tests remain offline.
+
+## Gate 5: Real npc Connect Review
+
+Scope:
+
+- Real stock `npc` binary test.
+- `NPC_BIN` test contract.
+- Device online/offline.
+- No fake compatibility.
+
+Exit criteria:
+
+- Test executes real stock `npc` from `yisier/nps`.
+- Test uses `NPC_BIN`.
+- Missing `NPC_BIN` with `legacy_npc_integration` tag fails clearly.
+- No silent skip.
+- No fake npc compatibility acceptance.
+- Before this gate starts, a pinned `yisier/nps` tag/version is selected and documented.
+- Stock npc fetch/build scripts do not use `master` or `latest` and do not vendor source into the Kavern repository.
+- Device online/offline state is verified.
+
+## Gate 6: Real npc TCP Echo Review
+
+Scope:
+
+- Stock `npc` end-to-end TCP echo.
+- `target_addr` safety.
+- Legacy mux boundary.
+- Timeouts.
+
+Exit criteria:
+
+- TCP echo passes through real stock `npc`.
+- `target_addr` is server-side and constrained.
+- Legacy mux details remain inside `internal/gateway/legacy_npc`.
+- Timeouts and cleanup are tested.
+
+## Gate 7: Benchmark Harness Review
+
+Scope:
+
+- `experiments/muxbench`.
+- Local benchmarks only.
+- WAN benchmark explicitly manual.
+- `smux`/`yamux`/`kavernmux` comparison plan.
+
+Exit criteria:
+
+- Local loopback benchmarks are reproducible.
+- Optional QUIC carrier is represented in the future comparison plan.
+- No production performance claims are made from local-only benchmarks.
+- Full WAN/server benchmark requires human deployment and is not an autonomous acceptance gate.
+
+## Gate 8: Security Review
+
+Scope:
+
+- Parser limits.
+- Auth.
+- Token handling.
+- No secret logs.
+- No arbitrary target.
+- Disabled tunnel/device semantics.
+
+Exit criteria:
+
+- Secrets and bearer materials are not logged.
+- `kavern-agent` does not use MD5, `nps` protocol, or `nps_mux`.
+- TLS does not default to `InsecureSkipVerify`.
+- Disabled devices and tunnels are enforced.
+- Legacy `npc` cannot request arbitrary targets.
+
+## Global Rule
+
+Do not proceed from one gate to the next until generated files, diffs, and test output for the current gate have been reviewed.
