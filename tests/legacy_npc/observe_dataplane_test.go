@@ -9,15 +9,18 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -113,7 +116,8 @@ func TestObserveStockNPSOracleMode(t *testing.T) {
 	}
 	requireExecutable(t, npsBin, "NPS_BIN")
 	vkey := observeRandomVKey(t)
-	recorder := newObserveRecorder(t, "stock_nps_oracle", vkey, []byte("server-secret"))
+	secrets := newObserveSecrets(t)
+	recorder := newObserveRecorder(t, "stock_nps_oracle", vkey, []byte("server-secret"), secrets.authKey, secrets.webPassword)
 	recorder.note("npc_bin", fmt.Sprintf("basename=%s sha256=%s", filepath.Base(npcBin), formatSHA256ForLog(sha256File(t, npcBin))))
 	recorder.note("nps_bin", fmt.Sprintf("basename=%s sha256=%s", filepath.Base(npsBin), formatSHA256ForLog(sha256File(t, npsBin))))
 
@@ -123,21 +127,15 @@ func TestObserveStockNPSOracleMode(t *testing.T) {
 	topology := newOracleTopology(t, ctx, recorder)
 	defer topology.Close()
 
-	cfg, ok := prepareOracleConfig(t, root, topology, vkey)
-	if !ok {
-		recorder.readiness("Insufficient for Gate 6B: NPS_BIN is present, but no temp stock nps config template was provided. Stop for review instead of guessing stock nps config shape.")
-		t.Skip("stock_nps_oracle requires NPS_OBSERVE_TEMPLATE_DIR and NPS_OBSERVE_ARGS_TEMPLATE to run without source inspection")
-	}
-	recorder.note("oracle_config", fmt.Sprintf("dir_basename=%s args_count=%d", filepath.Base(cfg.dir), len(cfg.args)))
-
+	runtime := prepareStockNPSRuntime(t, root, topology, secrets, recorder)
 	npsCtx, stopNPS := context.WithCancel(ctx)
 	defer stopNPS()
-	npsCmd := exec.CommandContext(npsCtx, npsBin, cfg.args...)
-	npsCmd.Dir = cfg.dir
+	npsCmd := exec.CommandContext(npsCtx, runtime.npsPath)
+	npsCmd.Dir = runtime.dir
 	if err := npsCmd.Start(); err != nil {
 		t.Fatalf("start stock nps basename=%s: %v", filepath.Base(npsBin), err)
 	}
-	recorder.note("nps_started", fmt.Sprintf("basename=%s pid_present=%t", filepath.Base(npsBin), npsCmd.Process != nil))
+	recorder.note("nps_started", fmt.Sprintf("basename=%s pid_present=%t", filepath.Base(runtime.npsPath), npsCmd.Process != nil))
 	npsDone := make(chan error, 1)
 	go func() {
 		npsDone <- npsCmd.Wait()
@@ -147,7 +145,23 @@ func TestObserveStockNPSOracleMode(t *testing.T) {
 		waitObservedProcess(t, "nps", npsCmd, npsDone, recorder)
 	}()
 
-	time.Sleep(500 * time.Millisecond)
+	api := newStockNPSAPI(runtime.webAddr, secrets.authKey)
+	if err := api.waitReady(ctx); err != nil {
+		recorder.readiness("Out of scope: stock nps did not expose the documented Web API gettime endpoint from loopback temp runtime.")
+		t.Fatalf("wait for stock nps Web API: %v", err)
+	}
+	clientID, err := api.addClient(ctx, vkey)
+	if err != nil {
+		recorder.readiness("Out of scope: stock nps Web API client setup failed; sanitized error indicates docs/runtime mismatch.")
+		t.Fatalf("stock nps client setup failed: %v", sanitizeErr(err, secrets.redactValues()...))
+	}
+	recorder.note("nps_client_added", fmt.Sprintf("id_present=%t", clientID != ""))
+	if err := api.addTCPTunnel(ctx, clientID, runtime.publicPort, topology.targetProxyAddr()); err != nil {
+		recorder.readiness("Out of scope: stock nps Web API tunnel setup failed; sanitized error indicates docs/runtime mismatch.")
+		t.Fatalf("stock nps tcp tunnel setup failed: %v", sanitizeErr(err, secrets.redactValues()...))
+	}
+	recorder.note("nps_tunnel_added", "type=tcp public=loopback target=target_proxy")
+
 	npcCtx, stopNPC := context.WithCancel(ctx)
 	defer stopNPC()
 	npcCmd := exec.CommandContext(npcCtx, npcBin, "-server="+topology.npcServerAddr(), "-vkey="+vkey)
@@ -191,6 +205,28 @@ func newObserveStore(t *testing.T, ctx context.Context) (*store.MemoryStore, ses
 }
 
 func observeRandomVKey(t *testing.T) string {
+	t.Helper()
+	return observeRandomSecret(t)
+}
+
+type observeSecrets struct {
+	authKey     string
+	webPassword string
+}
+
+func newObserveSecrets(t *testing.T) observeSecrets {
+	t.Helper()
+	return observeSecrets{
+		authKey:     observeRandomSecret(t),
+		webPassword: observeRandomSecret(t),
+	}
+}
+
+func (s observeSecrets) redactValues() []string {
+	return []string{s.authKey, s.webPassword}
+}
+
+func observeRandomSecret(t *testing.T) string {
 	t.Helper()
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -292,104 +328,290 @@ func TestObserveRepoBoundaryValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inside := filepath.Join(root, "tests", "legacy_npc", "observe-template")
-	if err := requireOutsideRepo("NPS_OBSERVE_TEMPLATE_DIR", inside, root); err == nil {
+	inside := filepath.Join(root, "tests", "legacy_npc", "observe-runtime")
+	if err := requireOutsideRepo("NPS_OBSERVE_DIR", inside, root); err == nil {
 		t.Fatal("path under repo root was allowed")
 	}
 	external := t.TempDir()
-	if err := requireOutsideRepo("NPS_OBSERVE_TEMPLATE_DIR", external, root); err != nil {
+	if err := requireOutsideRepo("NPS_OBSERVE_DIR", external, root); err != nil {
 		t.Fatalf("external temp dir was rejected: %v", err)
 	}
 }
 
-type oracleConfig struct {
-	dir  string
-	args []string
+func TestObserveGeneratedSecretsAreRandom(t *testing.T) {
+	first := newObserveSecrets(t)
+	second := newObserveSecrets(t)
+	if first.authKey == "" || first.webPassword == "" || second.authKey == "" || second.webPassword == "" {
+		t.Fatal("generated observe secrets must be non-empty")
+	}
+	if first.authKey == second.authKey {
+		t.Fatal("generated auth keys matched")
+	}
+	if first.webPassword == second.webPassword {
+		t.Fatal("generated web passwords matched")
+	}
 }
 
-func prepareOracleConfig(t *testing.T, root string, topology *oracleTopology, vkey string) (oracleConfig, bool) {
+func TestObserveGeneratedSecretsAreRedacted(t *testing.T) {
+	secrets := newObserveSecrets(t)
+	recorder := newObserveRecorder(t, "stock_nps_oracle", "", nil, secrets.authKey, secrets.webPassword)
+	msg := recorder.redact("auth=" + secrets.authKey + " password=" + secrets.webPassword)
+	if strings.Contains(msg, secrets.authKey) || strings.Contains(msg, secrets.webPassword) {
+		t.Fatal("recorder did not redact generated observe secrets")
+	}
+	errMsg := sanitizeErr(fmt.Errorf("auth=%s password=%s", secrets.authKey, secrets.webPassword), secrets.redactValues()...)
+	if strings.Contains(errMsg, secrets.authKey) || strings.Contains(errMsg, secrets.webPassword) {
+		t.Fatal("sanitizeErr did not redact generated observe secrets")
+	}
+}
+
+type stockNPSRuntime struct {
+	dir        string
+	npsPath    string
+	webAddr    string
+	publicPort string
+}
+
+func prepareStockNPSRuntime(t *testing.T, root string, topology *oracleTopology, secrets observeSecrets, recorder *observeRecorder) stockNPSRuntime {
 	t.Helper()
-	templateDir := os.Getenv("NPS_OBSERVE_TEMPLATE_DIR")
-	argsTemplate := os.Getenv("NPS_OBSERVE_ARGS_TEMPLATE")
-	if templateDir == "" || argsTemplate == "" {
-		return oracleConfig{}, false
+	npsBin := os.Getenv("NPS_BIN")
+	runtimeDir := filepath.Join(root, "nps-oracle")
+	confDir := filepath.Join(runtimeDir, "conf")
+	if err := os.MkdirAll(confDir, 0o700); err != nil {
+		t.Fatalf("create stock nps runtime conf dir basename=%s: %v", filepath.Base(confDir), err)
 	}
-	absTemplateDir, err := filepath.Abs(templateDir)
-	if err != nil {
-		t.Fatalf("NPS_OBSERVE_TEMPLATE_DIR basename=%s cannot be made absolute: %v", filepath.Base(templateDir), err)
+	npsPath := filepath.Join(runtimeDir, filepath.Base(npsBin))
+	if err := copyExecutable(npsBin, npsPath); err != nil {
+		t.Fatalf("copy stock nps binary basename=%s into temp runtime: %v", filepath.Base(npsBin), err)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
+	bridgeHost, bridgePort := splitHostPortForTest(t, topology.npsBridgeAddr)
+	webAddr := reserveLoopbackAddr(t)
+	webHost, webPort := splitHostPortForTest(t, webAddr)
+	publicHost, publicPort := splitHostPortForTest(t, topology.npsPublicAddr)
+	if bridgeHost != "127.0.0.1" || webHost != "127.0.0.1" || publicHost != "127.0.0.1" {
+		t.Fatal("stock nps oracle requires loopback-only bridge, web, and public ports")
 	}
-	repoRoot, err := findKavernRepoRoot(cwd)
-	if err != nil {
-		t.Fatalf("find Kavern repository root from cwd basename=%s: %v", filepath.Base(cwd), err)
+	conf := strings.Join([]string{
+		"bridge_type=tcp",
+		"bridge_ip=127.0.0.1",
+		"bridge_port=" + bridgePort,
+		"tls_enable=false",
+		"tls_bridge_port=",
+		"web_ip=127.0.0.1",
+		"web_port=" + webPort,
+		"web_username=admin",
+		"web_password=" + secrets.webPassword,
+		"auth_key=" + secrets.authKey,
+		"auth_crypt_key=0123456789abcdef",
+		"http_proxy_ip=127.0.0.1",
+		"http_proxy_port=",
+		"https_proxy_port=",
+		"allow_local_proxy=false",
+		"allow_ports=" + publicPort + "-" + publicPort,
+		"disconnect_timeout=2",
+		"flow_store_interval=",
+		"log_level=7",
+		"log_path=nps-observe.log",
+		"ip_limit=false",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(confDir, "nps.conf"), []byte(conf), 0o600); err != nil {
+		t.Fatalf("write sanitized stock nps config basename=nps.conf: %v", err)
 	}
-	if err := requireOutsideRepo("NPS_OBSERVE_TEMPLATE_DIR", absTemplateDir, repoRoot); err != nil {
-		t.Fatal(err)
-	}
-
-	outDir := filepath.Join(root, "stock-nps")
-	values := map[string]string{
-		"{{VKEY}}":               vkey,
-		"{{NPS_LEGACY_ADDR}}":    topology.npsLegacyAddr,
-		"{{NPC_SERVER_ADDR}}":    topology.npcServerAddr(),
-		"{{NPS_PUBLIC_ADDR}}":    topology.npsPublicAddr,
-		"{{PUBLIC_CLIENT_ADDR}}": topology.publicClientAddr(),
-		"{{TARGET_PROXY_ADDR}}":  topology.targetProxyAddr(),
-		"{{ECHO_TARGET_ADDR}}":   topology.echoAddr,
-		"{{CONFIG_DIR}}":         outDir,
-	}
-	if err := copyTemplateDir(absTemplateDir, outDir, values); err != nil {
-		t.Fatalf("prepare stock nps temp config from template basename=%s: %v", filepath.Base(absTemplateDir), err)
-	}
-	argsText := replacePlaceholders(argsTemplate, values)
-	args := strings.Fields(argsText)
-	if len(args) == 0 {
-		t.Fatal("NPS_OBSERVE_ARGS_TEMPLATE produced no stock nps args")
-	}
-	return oracleConfig{dir: outDir, args: args}, true
+	recorder.note("nps_runtime", "dir=temp_external conf=nps.conf bridge=loopback web=loopback public=loopback")
+	return stockNPSRuntime{dir: runtimeDir, npsPath: npsPath, webAddr: webAddr, publicPort: publicPort}
 }
 
-func copyTemplateDir(src, dst string, values map[string]string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o700)
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		data = []byte(replacePlaceholders(string(data), values))
-		return os.WriteFile(target, data, info.Mode().Perm()&0o600)
-	})
+func copyExecutable(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
-func replacePlaceholders(s string, values map[string]string) string {
-	out := s
-	for k, v := range values {
-		out = strings.ReplaceAll(out, k, v)
+func splitHostPortForTest(t *testing.T, addr string) (string, string) {
+	t.Helper()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("split loopback address: %v", err)
+	}
+	if host != "127.0.0.1" {
+		t.Fatalf("address host=%s, want 127.0.0.1", host)
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		t.Fatalf("address port is not numeric: %v", err)
+	}
+	return host, port
+}
+
+type stockNPSAPI struct {
+	base    string
+	authKey string
+	http    *http.Client
+}
+
+func newStockNPSAPI(webAddr, authKey string) *stockNPSAPI {
+	return &stockNPSAPI{
+		base:    "http://" + webAddr,
+		authKey: authKey,
+		http:    &http.Client{Timeout: 2 * time.Second},
+	}
+}
+
+func (a *stockNPSAPI) waitReady(ctx context.Context) error {
+	deadline := time.Now().Add(8 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if _, err := a.serverTime(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("timeout waiting for /auth/gettime/: %w", lastErr)
+}
+
+func (a *stockNPSAPI) addClient(ctx context.Context, vkey string) (string, error) {
+	form := url.Values{
+		"remark":            {"oracle"},
+		"vkey":              {vkey},
+		"u":                 {""},
+		"p":                 {""},
+		"compress":          {"false"},
+		"crypt":             {"false"},
+		"config_conn_allow": {"false"},
+		"rate_limit":        {""},
+		"flow_limit":        {""},
+		"max_conn":          {""},
+		"max_tunnel":        {""},
+		"web_username":      {""},
+		"web_password":      {""},
+		"blackiplist":       {""},
+		"ipwhite":           {"false"},
+		"ipwhitepass":       {""},
+		"ipwhitelist":       {""},
+		"expire_time":       {""},
+	}
+	var resp npsAPIResponse
+	if err := a.post(ctx, "/client/add/", form, &resp); err != nil {
+		return "", err
+	}
+	if resp.Status != 1 || resp.ID == 0 {
+		return "", fmt.Errorf("client add response status=%d id_present=%t msg_present=%t", resp.Status, resp.ID != 0, resp.Msg != "")
+	}
+	return strconv.Itoa(resp.ID), nil
+}
+
+func (a *stockNPSAPI) addTCPTunnel(ctx context.Context, clientID, publicPort, targetAddr string) error {
+	form := url.Values{
+		"client_id":     {clientID},
+		"type":          {"tcp"},
+		"remark":        {"oracle-tcp"},
+		"port":          {publicPort},
+		"server_ip":     {"127.0.0.1"},
+		"target":        {targetAddr},
+		"local_proxy":   {"false"},
+		"password":      {""},
+		"local_path":    {""},
+		"strip_pre":     {""},
+		"proto_version": {""},
+	}
+	var resp npsAPIResponse
+	if err := a.post(ctx, "/index/add/", form, &resp); err != nil {
+		return err
+	}
+	if resp.Status != 1 {
+		return fmt.Errorf("tcp tunnel add response status=%d id_present=%t msg_present=%t", resp.Status, resp.ID != 0, resp.Msg != "")
+	}
+	return nil
+}
+
+func (a *stockNPSAPI) post(ctx context.Context, path string, form url.Values, out any) error {
+	ts, err := a.serverTime(ctx)
+	if err != nil {
+		return err
+	}
+	form = cloneValues(form)
+	form.Set("timestamp", ts)
+	form.Set("auth_key", md5Hex(a.authKey+ts))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res, err := a.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	return decodeLimitedJSON(res.Body, out)
+}
+
+func (a *stockNPSAPI) serverTime(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.base+"/auth/gettime/", nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := a.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	var body struct {
+		Time int64 `json:"time"`
+	}
+	if err := decodeLimitedJSON(res.Body, &body); err != nil {
+		return "", err
+	}
+	if body.Time <= 0 {
+		return "", fmt.Errorf("gettime response missing positive time")
+	}
+	return strconv.FormatInt(body.Time, 10), nil
+}
+
+type npsAPIResponse struct {
+	Status int    `json:"status"`
+	Msg    string `json:"msg"`
+	ID     int    `json:"id"`
+}
+
+func decodeLimitedJSON(r io.Reader, out any) error {
+	return json.NewDecoder(io.LimitReader(r, 16*1024)).Decode(out)
+}
+
+func cloneValues(in url.Values) url.Values {
+	out := make(url.Values, len(in))
+	for k, vs := range in {
+		out[k] = append([]string(nil), vs...)
 	}
 	return out
+}
+
+func md5Hex(s string) string {
+	sum := md5.Sum([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 type oracleTopology struct {
 	cancel        context.CancelFunc
 	echoAddr      string
-	npsLegacyAddr string
+	npsBridgeAddr string
 	npsPublicAddr string
 	targetProxy   *observeProxy
 	legacyProxy   *observeProxy
@@ -403,11 +625,11 @@ func newOracleTopology(t *testing.T, ctx context.Context, recorder *observeRecor
 	topology := &oracleTopology{
 		cancel:        cancel,
 		echoAddr:      echoAddr,
-		npsLegacyAddr: reserveLoopbackAddr(t),
+		npsBridgeAddr: reserveLoopbackAddr(t),
 		npsPublicAddr: reserveLoopbackAddr(t),
 	}
 	topology.targetProxy = startObserveProxy(t, ctx, recorder, "target_tcp", echoAddr)
-	topology.legacyProxy = startObserveProxy(t, ctx, recorder, "legacy_nps_npc", topology.npsLegacyAddr)
+	topology.legacyProxy = startObserveProxy(t, ctx, recorder, "legacy_nps_npc", topology.npsBridgeAddr)
 	topology.publicProxy = startObserveProxy(t, ctx, recorder, "public_tcp", topology.npsPublicAddr)
 	recorder.note("oracle_topology", fmt.Sprintf("roles=legacy_nps_npc,public_tcp,target_tcp nps_legacy=loopback nps_public=loopback echo=loopback"))
 	return topology
@@ -752,7 +974,7 @@ type observeRecorder struct {
 	mu           sync.Mutex
 }
 
-func newObserveRecorder(t *testing.T, mode, vkey string, serverSecret []byte) *observeRecorder {
+func newObserveRecorder(t *testing.T, mode, vkey string, serverSecret []byte, extraRedactValues ...string) *observeRecorder {
 	t.Helper()
 	values := []string{vkey}
 	if vkey != "" {
@@ -762,6 +984,7 @@ func newObserveRecorder(t *testing.T, mode, vkey string, serverSecret []byte) *o
 	if len(serverSecret) > 0 {
 		values = append(values, string(serverSecret))
 	}
+	values = append(values, extraRedactValues...)
 	return &observeRecorder{t: t, mode: mode, redactValues: values}
 }
 
@@ -888,11 +1111,16 @@ func sanitizeProcessStatus(err error) string {
 	return "exited_nonzero"
 }
 
-func sanitizeErr(err error) string {
+func sanitizeErr(err error, extraRedactValues ...string) string {
 	if err == nil {
 		return ""
 	}
 	msg := err.Error()
+	for _, value := range extraRedactValues {
+		if value != "" {
+			msg = strings.ReplaceAll(msg, value, "<redacted>")
+		}
+	}
 	msg = hex32Pattern.ReplaceAllString(msg, "<hex32>")
 	if len(msg) > 120 {
 		msg = msg[:120]

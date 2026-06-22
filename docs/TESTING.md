@@ -97,6 +97,27 @@ For Gate 5, `NPC_BIN` must point to an executable downloaded from the pinned Git
 
 Gate 5 implementation is clean-room and black-box. Do not inspect, import, vendor, copy, or derive from `yisier/nps` source code. Compatibility work may use only Kavern specs, public release metadata, and sanitized byte-level behavior observed from running the pinned real binary in local tests.
 
+Developers may keep pinned stock `nps`/`npc` release binaries in a project-local ignored cache instead of `/tmp`:
+
+```text
+.kavern-testbin/
+  nps-v0.26.34/
+    linux_amd64_client.tar.gz
+    linux_amd64_server.tar.gz
+    npc
+    nps
+    SHA256SUMS.txt
+```
+
+Example environment exports:
+
+```sh
+export NPC_BIN="$PWD/.kavern-testbin/nps-v0.26.34/npc"
+export NPS_BIN="$PWD/.kavern-testbin/nps-v0.26.34/nps"
+```
+
+`.kavern-testbin/` and `.kavern-observe/` are local developer caches only and must not be committed. Binaries, archives, generated stock `nps` config, captures, and logs must remain out of git. Tests do not auto-discover `.kavern-testbin/`; real legacy and observation tests still require explicit `NPC_BIN` and, where applicable, `NPS_BIN` environment variables. Do not place `NPS_OBSERVE_DIR` inside the repository unless a later reviewed change explicitly supports that; the current observe runtime should use `t.TempDir()` or an external directory outside the repo.
+
 ## Required Test Coverage by Gate
 
 ### Gate 1, Core Skeleton Review
