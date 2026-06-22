@@ -2,9 +2,9 @@ package agent_v1
 
 import (
 	"context"
-	"errors"
 	"sync"
 
+	"github.com/geniucker-dev/kavern/internal/dataplane/carrier"
 	"github.com/geniucker-dev/kavern/internal/domain"
 	"github.com/geniucker-dev/kavern/internal/session"
 )
@@ -13,12 +13,17 @@ type agentSession struct {
 	id       domain.SessionID
 	deviceID domain.DeviceID
 
+	pool *carrier.Pool
 	done chan struct{}
 	mu   sync.Mutex
 }
 
 func newAgentSession(id domain.SessionID, deviceID domain.DeviceID) *agentSession {
-	return &agentSession{id: id, deviceID: deviceID, done: make(chan struct{})}
+	pool, err := carrier.NewPool()
+	if err != nil {
+		panic(err)
+	}
+	return &agentSession{id: id, deviceID: deviceID, pool: pool, done: make(chan struct{})}
 }
 
 func (s *agentSession) ID() domain.SessionID {
@@ -37,7 +42,32 @@ func (s *agentSession) OpenStream(ctx context.Context, req domain.StreamOpenRequ
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return nil, errors.New("agent_v1 streams are not implemented in Gate 2")
+	if s.closed() {
+		return nil, ErrSessionClosed
+	}
+	if req.TunnelID == "" {
+		return nil, ErrInvalidInput
+	}
+	if req.Protocol == "" {
+		req.Protocol = domain.TunnelProtocolTCP
+	}
+	if req.Protocol != domain.TunnelProtocolTCP {
+		return nil, ErrUnsupportedTunnelProtocol
+	}
+	lease, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := WriteOpenStreamMetadata(lease.Stream, OpenStreamMetadata{
+		Version:  ProtocolVersion,
+		Type:     OpenStreamMessageType,
+		TunnelID: req.TunnelID,
+		Protocol: req.Protocol,
+	}); err != nil {
+		_ = lease.Release()
+		return nil, err
+	}
+	return &leasedAgentStream{Lease: lease}, nil
 }
 
 func (s *agentSession) Close(ctx context.Context) error {
@@ -51,11 +81,34 @@ func (s *agentSession) Close(ctx context.Context) error {
 	default:
 		close(s.done)
 	}
-	return nil
+	return s.pool.Close()
 }
 
 func (s *agentSession) Done() <-chan struct{} {
 	return s.done
+}
+
+func (s *agentSession) attachCarrier(c *carrier.Carrier) error {
+	if s.closed() {
+		return ErrSessionClosed
+	}
+	return s.pool.Add(c)
+}
+
+type leasedAgentStream struct {
+	*carrier.Lease
+}
+
+func (s *leasedAgentStream) Read(p []byte) (int, error) {
+	return s.Stream.Read(p)
+}
+
+func (s *leasedAgentStream) Write(p []byte) (int, error) {
+	return s.Stream.Write(p)
+}
+
+func (s *leasedAgentStream) Close() error {
+	return s.Release()
 }
 
 func (s *agentSession) closed() bool {

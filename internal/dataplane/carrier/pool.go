@@ -27,6 +27,22 @@ func NewPool(carriers ...*Carrier) (*Pool, error) {
 	return &Pool{carriers: append([]*Carrier(nil), carriers...)}, nil
 }
 
+func (p *Pool) Add(carrier *Carrier) error {
+	if carrier == nil {
+		return ErrInvalidConfig
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return ErrPoolClosed
+	}
+	if carrier.Closed() {
+		return ErrCarrierClosed
+	}
+	p.carriers = append(p.carriers, carrier)
+	return nil
+}
+
 func (p *Pool) Acquire(ctx context.Context) (*Lease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

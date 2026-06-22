@@ -75,7 +75,20 @@ func (s *FakeSession) OpenCount() int {
 }
 
 type FakeStream struct {
-	bytes.Buffer
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *FakeStream) Read(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Read(p)
+}
+
+func (s *FakeStream) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
 }
 
 func (s *FakeStream) Close() error {

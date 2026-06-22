@@ -79,6 +79,12 @@ func (c *Carrier) Close() error {
 	return c.session.Close()
 }
 
+func (c *Carrier) Closed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 func (c *Carrier) ActiveStreams() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()

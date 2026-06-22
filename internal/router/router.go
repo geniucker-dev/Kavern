@@ -52,9 +52,6 @@ func (r *Router) ResolveTunnel(ctx context.Context, listener domain.ListenerRef)
 }
 
 func (r *Router) RouteTCP(ctx context.Context, tunnel domain.Tunnel, inbound net.Conn) error {
-	if inbound != nil {
-		defer inbound.Close()
-	}
 	if !tunnel.Enabled {
 		return ErrDisabledTunnel
 	}
@@ -70,17 +67,13 @@ func (r *Router) RouteTCP(ctx context.Context, tunnel domain.Tunnel, inbound net
 		return err
 	}
 	stream, err := current.OpenStream(ctx, domain.StreamOpenRequest{
-		TunnelID:   tunnel.ID,
-		Protocol:   storeProtocol(tunnel),
-		TargetAddr: tunnel.TargetAddr,
+		TunnelID: tunnel.ID,
+		Protocol: storeProtocol(tunnel),
 	})
 	if err != nil {
 		return err
 	}
-	if stream != nil {
-		return stream.Close()
-	}
-	return nil
+	return session.ProxyBidirectional(ctx, inbound, stream)
 }
 
 func storeProtocol(tunnel domain.Tunnel) domain.TunnelProtocol {

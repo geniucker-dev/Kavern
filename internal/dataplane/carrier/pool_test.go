@@ -108,3 +108,42 @@ func TestClosingPoolClosesAllCarriersAndRejectsFutureAcquire(t *testing.T) {
 		t.Fatalf("acquire after close error = %v, want %v", err, ErrPoolClosed)
 	}
 }
+
+func TestPoolAddRejectsNilClosedPoolAndClosedCarrier(t *testing.T) {
+	pool, err := NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Add(nil); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Add(nil) error = %v, want %v", err, ErrInvalidConfig)
+	}
+
+	closedPool, err := NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedPool.Close(); err != nil {
+		t.Fatal(err)
+	}
+	carrierForClosedPool, err := New(&fakeSession{}, Config{MaxStreamsPerCarrier: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedPool.Add(carrierForClosedPool); !errors.Is(err, ErrPoolClosed) {
+		t.Fatalf("Add(after pool close) error = %v, want %v", err, ErrPoolClosed)
+	}
+
+	closedCarrier, err := New(&fakeSession{}, Config{MaxStreamsPerCarrier: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedCarrier.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !closedCarrier.Closed() {
+		t.Fatal("Closed() = false, want true")
+	}
+	if err := pool.Add(closedCarrier); !errors.Is(err, ErrCarrierClosed) {
+		t.Fatalf("Add(closed carrier) error = %v, want %v", err, ErrCarrierClosed)
+	}
+}

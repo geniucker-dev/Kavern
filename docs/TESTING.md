@@ -83,13 +83,19 @@ These scripts may fetch or build stock `npc` from a pinned `yisier/nps` tag. The
 
 Before Gate 5 starts, a pinned `yisier/nps` tag or version must be selected and documented here. `scripts/build-npc.sh` and `scripts/fetch-npc.sh` must not use `master` or `latest`. The scripts may clone or download into temporary, cache, or testbin locations, but must not vendor `yisier/nps` source into the Kavern repository.
 
-The pinned tag or version must be documented here before the scripts are accepted:
+Gate 5 pins stock `npc` compatibility testing to:
 
 ```text
-Pinned yisier/nps tag: TBD during implementation review
+Pinned yisier/nps tag: v0.26.34
 Source: https://github.com/yisier/nps
+Release assets: https://github.com/yisier/nps/releases/tag/v0.26.34
 Vendoring allowed: no
+Scripts accepted in Gate 5: no
 ```
+
+For Gate 5, `NPC_BIN` must point to an executable downloaded from the pinned GitHub release assets. Do not use `master`, `latest`, or an unpinned binary. The review packet must include the `NPC_BIN` absolute path, asset/source provenance, and SHA-256 of the binary or archive used.
+
+Gate 5 implementation is clean-room and black-box. Do not inspect, import, vendor, copy, or derive from `yisier/nps` source code. Compatibility work may use only Kavern specs, public release metadata, and sanitized byte-level behavior observed from running the pinned real binary in local tests.
 
 ## Required Test Coverage by Gate
 

@@ -52,6 +52,37 @@ func TestRouteTCPRequiresCurrentSession(t *testing.T) {
 	}
 }
 
+func TestRouteTCPRejectsDisabledTunnelAndDeviceBeforeOpeningStream(t *testing.T) {
+	ctx := context.Background()
+	st, manager := newRouterFixture(t)
+	fake := testutil.NewFakeSession("session-1", "device-1")
+	if err := manager.Attach(ctx, fake); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	if err := router.New(st, manager).RouteTCP(ctx, domain.Tunnel{ID: "tunnel-1", DeviceID: "device-1", Enabled: false}, nil); !errors.Is(err, router.ErrDisabledTunnel) {
+		t.Fatalf("RouteTCP(disabled tunnel) error = %v, want ErrDisabledTunnel", err)
+	}
+	if fake.OpenCount() != 0 {
+		t.Fatalf("OpenStream count after disabled tunnel = %d, want 0", fake.OpenCount())
+	}
+
+	disabledStore := store.NewMemoryStore()
+	disabledManager := session.NewManager()
+	if err := disabledStore.CreateDevice(ctx, domain.Device{ID: "device-2", ProjectID: "project-1", Enabled: false}); err != nil {
+		t.Fatalf("CreateDevice() error = %v", err)
+	}
+	disabledFake := testutil.NewFakeSession("session-2", "device-2")
+	if err := disabledManager.Attach(ctx, disabledFake); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	if err := router.New(disabledStore, disabledManager).RouteTCP(ctx, domain.Tunnel{ID: "tunnel-2", DeviceID: "device-2", Enabled: true}, nil); !errors.Is(err, router.ErrDisabledDevice) {
+		t.Fatalf("RouteTCP(disabled device) error = %v, want ErrDisabledDevice", err)
+	}
+	if disabledFake.OpenCount() != 0 {
+		t.Fatalf("OpenStream count after disabled device = %d, want 0", disabledFake.OpenCount())
+	}
+}
+
 func TestRouteTCPOpensStreamForEnabledTunnelAndDevice(t *testing.T) {
 	ctx := context.Background()
 	st, manager := newRouterFixture(t)
@@ -62,12 +93,19 @@ func TestRouteTCPOpensStreamForEnabledTunnelAndDevice(t *testing.T) {
 	tunnel := domain.Tunnel{ID: "tunnel-1", DeviceID: "device-1", Protocol: domain.TunnelProtocolTCP, TargetAddr: "127.0.0.1:80", Enabled: true}
 
 	server, client := net.Pipe()
-	defer client.Close()
+	_ = client.Close()
 	if err := router.New(st, manager).RouteTCP(ctx, tunnel, server); err != nil {
 		t.Fatalf("RouteTCP() error = %v", err)
 	}
 	if fake.OpenCount() != 1 {
 		t.Fatalf("OpenStream count = %d, want 1", fake.OpenCount())
+	}
+	req := fake.OpenRequests[0]
+	if req.TunnelID != tunnel.ID || req.Protocol != domain.TunnelProtocolTCP {
+		t.Fatalf("OpenStream request = %+v", req)
+	}
+	if req.TargetAddr != "" {
+		t.Fatalf("OpenStream TargetAddr = %q, want empty", req.TargetAddr)
 	}
 }
 
