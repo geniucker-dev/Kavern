@@ -1,0 +1,1354 @@
+{
+  "version": "gate6b1_fixture_v1",
+  "mode": "stock_nps_oracle",
+  "binary_sha256": {
+    "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+    "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+  },
+  "frames": [
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 1,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 37,
+      "sanitized_hex": "00ffffffff1e00 \u003csession_control_body:30\u003e",
+      "candidate_opcode_byte": "0x00",
+      "candidate_stream_id_le32": 4294967295,
+      "candidate_length_le16": 30,
+      "candidate_length_le32": 909258802,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=37_bytes",
+        "candidate_opcode_byte=0x00",
+        "candidate_stream_id_le32=4294967295",
+        "candidate_length_le16=30",
+        "candidate_length_le32=909258802",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 2,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 37,
+      "sanitized_hex": "00ffffffff1e00 \u003csession_control_body:30\u003e",
+      "candidate_opcode_byte": "0x00",
+      "candidate_stream_id_le32": 4294967295,
+      "candidate_length_le16": 30,
+      "candidate_length_le32": 909258802,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=37_bytes",
+        "candidate_opcode_byte=0x00",
+        "candidate_stream_id_le32=4294967295",
+        "candidate_length_le16=30",
+        "candidate_length_le32=909258802",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 3,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 42,
+      "sanitized_hex": "08ffffffff1e00 \u003csession_control_body:30\u003e 0601000000",
+      "candidate_opcode_byte": "0x08",
+      "candidate_stream_id_le32": 4294967295,
+      "candidate_length_le16": 30,
+      "candidate_length_le32": 909258802,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=42_bytes",
+        "candidate_opcode_byte=0x08",
+        "candidate_stream_id_le32=4294967295",
+        "candidate_length_le16=30",
+        "candidate_length_le32=909258802",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 4,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 37,
+      "sanitized_hex": "08ffffffff1e00 \u003csession_control_body:30\u003e",
+      "candidate_opcode_byte": "0x08",
+      "candidate_stream_id_le32": 4294967295,
+      "candidate_length_le16": 30,
+      "candidate_length_le32": 909258802,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=37_bytes",
+        "candidate_opcode_byte=0x08",
+        "candidate_stream_id_le32=4294967295",
+        "candidate_length_le16=30",
+        "candidate_length_le32=909258802",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 5,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 5,
+      "sanitized_hex": "0101000000",
+      "candidate_opcode_byte": "0x01",
+      "candidate_stream_id_le32": 1,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x01",
+        "candidate_stream_id_le32=1",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 6,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 7,
+      "sanitized_hex": "0301000000b200",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 1,
+      "candidate_length_le16": 178,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=7_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=1",
+        "candidate_length_le16=178",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 7,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 178,
+      "sanitized_hex": "ae000000 \u003cmetadata_body:174\u003e \u003credacted_after_metadata:0\u003e",
+      "candidate_opcode_byte": "0xae",
+      "candidate_stream_id_le32": 2063597568,
+      "candidate_length_le16": 17186,
+      "candidate_length_le32": 174,
+      "candidate_payload_offset": 4,
+      "metadata_body_format": "split_continuation_json_object_generic",
+      "metadata_key_summary": [
+        "Compress:bool",
+        "ConnType:string",
+        "Crypt:bool",
+        "Host:string",
+        "LocalProxy:bool",
+        "Option.Timeout:number",
+        "Option:object",
+        "ProtoVersion:string",
+        "RemoteAddr:string"
+      ],
+      "metadata_sanitized_preview": "{\"Compress\":false,\"ConnType\":\"tcp\",\"Crypt\":false,\"Host\":\"\\u003ctarget_proxy_addr\\u003e\",\"LocalProxy\":false,\"Option\":{\"Timeout\":5000000000},\"ProtoVersion\":\"\",\"RemoteAddr\":\"\\u003cunknown_loopback_addr\\u003e\"}",
+      "semantic_address_placeholders": [
+        "\u003ctarget_proxy_addr\u003e",
+        "\u003cunknown_loopback_addr\u003e"
+      ],
+      "metadata_host_placeholder": "\u003ctarget_proxy_addr\u003e",
+      "metadata_remote_addr_placeholder": "\u003cunknown_loopback_addr\u003e",
+      "observed_label": "chan_possible_data_frame",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=178_bytes",
+        "candidate_opcode_byte=0xae",
+        "candidate_stream_id_le32=2063597568",
+        "candidate_length_le16=17186",
+        "candidate_length_le32=174",
+        "candidate_payload_offset=4",
+        "candidate_data_or_metadata_frame",
+        "metadata_body_format=split_continuation_json_object_generic"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 8,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 12,
+      "sanitized_hex": "03010000000500 \u003cpayload:probe-1:5\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 1,
+      "candidate_length_le16": 5,
+      "candidate_length_le32": 1684234849,
+      "candidate_payload_offset": 7,
+      "payload_placeholder": "\u003cpayload:probe-1:5\u003e",
+      "observed_label": "chan_post_handshake_unknown",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=12_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=1",
+        "candidate_length_le16=5",
+        "candidate_length_le32=1684234849",
+        "candidate_payload_offset=7",
+        "payload_bytes_redacted"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 9,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 39,
+      "sanitized_hex": "050100000000000000fceb02000501000000b2000000fceb0200050100000000000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 1,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=39_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=1",
+        "candidate_length_le32=3959160832",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 10,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 13,
+      "sanitized_hex": "050100000005000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 1,
+      "candidate_length_le16": 5,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=13_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=1",
+        "candidate_length_le16=5",
+        "candidate_length_le32=3959160832",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 11,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 12,
+      "sanitized_hex": "03010000000500 \u003cpayload:probe-1:5\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 1,
+      "candidate_length_le16": 5,
+      "candidate_length_le32": 1684234849,
+      "candidate_payload_offset": 7,
+      "payload_placeholder": "\u003cpayload:probe-1:5\u003e",
+      "observed_label": "chan_post_handshake_unknown",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=12_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=1",
+        "candidate_length_le16=5",
+        "candidate_length_le32=1684234849",
+        "candidate_payload_offset=7",
+        "payload_bytes_redacted"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 12,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 26,
+      "sanitized_hex": "050100000000000000fceb0200050100000005000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 1,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=26_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=1",
+        "candidate_length_le32=3959160832",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 13,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 5,
+      "sanitized_hex": "0701000000",
+      "candidate_opcode_byte": "0x07",
+      "candidate_stream_id_le32": 1,
+      "close_candidate_direction": "nps_to_npc",
+      "close_candidate_after_event": "public_client_closed",
+      "close_candidate_stream_id": 1,
+      "close_semantics_evidence": "0x07 frame observed during bounded grace after public_client_closed",
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x07",
+        "candidate_stream_id_le32=1",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 14,
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "byte_count": 5,
+      "sanitized_hex": "0701000000",
+      "candidate_opcode_byte": "0x07",
+      "candidate_stream_id_le32": 1,
+      "close_candidate_direction": "npc_to_nps",
+      "close_candidate_after_event": "public_client_closed",
+      "close_candidate_stream_id": 1,
+      "close_semantics_evidence": "0x07 frame observed during bounded grace after public_client_closed",
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_1_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x07",
+        "candidate_stream_id_le32=1",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 15,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 5,
+      "sanitized_hex": "0602000000",
+      "candidate_opcode_byte": "0x06",
+      "candidate_stream_id_le32": 2,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x06",
+        "candidate_stream_id_le32=2",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 16,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 5,
+      "sanitized_hex": "0102000000",
+      "candidate_opcode_byte": "0x01",
+      "candidate_stream_id_le32": 2,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x01",
+        "candidate_stream_id_le32=2",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 17,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 185,
+      "sanitized_hex": "0302000000b200ae000000 \u003cmetadata_body:174\u003e \u003credacted_after_metadata:0\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 2,
+      "candidate_length_le16": 178,
+      "candidate_length_le32": 174,
+      "candidate_payload_offset": 11,
+      "metadata_body_format": "json_object_generic",
+      "metadata_key_summary": [
+        "Compress:bool",
+        "ConnType:string",
+        "Crypt:bool",
+        "Host:string",
+        "LocalProxy:bool",
+        "Option.Timeout:number",
+        "Option:object",
+        "ProtoVersion:string",
+        "RemoteAddr:string"
+      ],
+      "metadata_sanitized_preview": "{\"Compress\":false,\"ConnType\":\"tcp\",\"Crypt\":false,\"Host\":\"\\u003ctarget_proxy_addr\\u003e\",\"LocalProxy\":false,\"Option\":{\"Timeout\":5000000000},\"ProtoVersion\":\"\",\"RemoteAddr\":\"\\u003cunknown_loopback_addr\\u003e\"}",
+      "semantic_address_placeholders": [
+        "\u003ctarget_proxy_addr\u003e",
+        "\u003cunknown_loopback_addr\u003e"
+      ],
+      "metadata_host_placeholder": "\u003ctarget_proxy_addr\u003e",
+      "metadata_remote_addr_placeholder": "\u003cunknown_loopback_addr\u003e",
+      "observed_label": "chan_possible_data_frame",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=185_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=2",
+        "candidate_length_le16=178",
+        "candidate_length_le32=174",
+        "candidate_payload_offset=11",
+        "candidate_data_or_metadata_frame",
+        "metadata_body_format=json_object_generic"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 18,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 26,
+      "sanitized_hex": "03020000001300 \u003cpayload:probe-2:19\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 2,
+      "candidate_length_le16": 19,
+      "candidate_length_le32": 1702257003,
+      "candidate_payload_offset": 7,
+      "payload_placeholder": "\u003cpayload:probe-2:19\u003e",
+      "observed_label": "chan_payload_related",
+      "timing_marker": "probe_2_payload_related",
+      "known_field_annotations": [
+        "observed_frame_boundary=26_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=2",
+        "candidate_length_le16=19",
+        "candidate_length_le32=1702257003",
+        "candidate_payload_offset=7",
+        "payload_placeholder_marks_observed_payload_bytes",
+        "payload_bytes_redacted"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 19,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 39,
+      "sanitized_hex": "050200000000000000fceb02000502000000b2000000fceb0200050200000000000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 2,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=39_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=2",
+        "candidate_length_le32=3959160832",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 20,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 13,
+      "sanitized_hex": "050200000013000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 2,
+      "candidate_length_le16": 19,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=13_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=2",
+        "candidate_length_le16=19",
+        "candidate_length_le32=3959160832",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 21,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 26,
+      "sanitized_hex": "03020000001300 \u003cpayload:probe-2:19\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 2,
+      "candidate_length_le16": 19,
+      "candidate_length_le32": 1702257003,
+      "candidate_payload_offset": 7,
+      "payload_placeholder": "\u003cpayload:probe-2:19\u003e",
+      "observed_label": "chan_payload_related",
+      "timing_marker": "probe_2_payload_related",
+      "known_field_annotations": [
+        "observed_frame_boundary=26_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=2",
+        "candidate_length_le16=19",
+        "candidate_length_le32=1702257003",
+        "candidate_payload_offset=7",
+        "payload_placeholder_marks_observed_payload_bytes",
+        "payload_bytes_redacted"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 22,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 26,
+      "sanitized_hex": "050200000000000000fceb0200050200000013000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 2,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=26_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=2",
+        "candidate_length_le32=3959160832",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 23,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 5,
+      "sanitized_hex": "0702000000",
+      "candidate_opcode_byte": "0x07",
+      "candidate_stream_id_le32": 2,
+      "close_candidate_direction": "nps_to_npc",
+      "close_candidate_after_event": "public_client_closed",
+      "close_candidate_stream_id": 2,
+      "close_semantics_evidence": "0x07 frame observed during bounded grace after public_client_closed",
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x07",
+        "candidate_stream_id_le32=2",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 24,
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "byte_count": 5,
+      "sanitized_hex": "0702000000",
+      "candidate_opcode_byte": "0x07",
+      "candidate_stream_id_le32": 2,
+      "close_candidate_direction": "npc_to_nps",
+      "close_candidate_after_event": "public_client_closed",
+      "close_candidate_stream_id": 2,
+      "close_semantics_evidence": "0x07 frame observed during bounded grace after public_client_closed",
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_2_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x07",
+        "candidate_stream_id_le32=2",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 25,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 5,
+      "sanitized_hex": "0603000000",
+      "candidate_opcode_byte": "0x06",
+      "candidate_stream_id_le32": 3,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x06",
+        "candidate_stream_id_le32=3",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 26,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 5,
+      "sanitized_hex": "0103000000",
+      "candidate_opcode_byte": "0x01",
+      "candidate_stream_id_le32": 3,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x01",
+        "candidate_stream_id_le32=3",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 27,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 185,
+      "sanitized_hex": "0303000000b200ae000000 \u003cmetadata_body:174\u003e \u003credacted_after_metadata:0\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 3,
+      "candidate_length_le16": 178,
+      "candidate_length_le32": 174,
+      "candidate_payload_offset": 11,
+      "metadata_body_format": "json_object_generic",
+      "metadata_key_summary": [
+        "Compress:bool",
+        "ConnType:string",
+        "Crypt:bool",
+        "Host:string",
+        "LocalProxy:bool",
+        "Option.Timeout:number",
+        "Option:object",
+        "ProtoVersion:string",
+        "RemoteAddr:string"
+      ],
+      "metadata_sanitized_preview": "{\"Compress\":false,\"ConnType\":\"tcp\",\"Crypt\":false,\"Host\":\"\\u003ctarget_proxy_addr\\u003e\",\"LocalProxy\":false,\"Option\":{\"Timeout\":5000000000},\"ProtoVersion\":\"\",\"RemoteAddr\":\"\\u003cunknown_loopback_addr\\u003e\"}",
+      "semantic_address_placeholders": [
+        "\u003ctarget_proxy_addr\u003e",
+        "\u003cunknown_loopback_addr\u003e"
+      ],
+      "metadata_host_placeholder": "\u003ctarget_proxy_addr\u003e",
+      "metadata_remote_addr_placeholder": "\u003cunknown_loopback_addr\u003e",
+      "observed_label": "chan_possible_data_frame",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=185_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=3",
+        "candidate_length_le16=178",
+        "candidate_length_le32=174",
+        "candidate_payload_offset=11",
+        "candidate_data_or_metadata_frame",
+        "metadata_body_format=json_object_generic"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 28,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 264,
+      "sanitized_hex": "03030000000101 \u003cpayload:probe-3:257\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 3,
+      "candidate_length_le16": 257,
+      "candidate_length_le32": 2054847098,
+      "candidate_payload_offset": 7,
+      "payload_placeholder": "\u003cpayload:probe-3:257\u003e",
+      "observed_label": "chan_possible_data_frame",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=264_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=3",
+        "candidate_length_le16=257",
+        "candidate_length_le32=2054847098",
+        "candidate_payload_offset=7",
+        "candidate_data_or_metadata_frame",
+        "payload_bytes_redacted"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset",
+        "metadata_body_presence"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 29,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 13,
+      "sanitized_hex": "050300000000000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 3,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=13_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=3",
+        "candidate_length_le32=3959160832",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 30,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 26,
+      "sanitized_hex": "0503000000b2000000fceb0200050300000000000000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 3,
+      "candidate_length_le16": 178,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=26_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=3",
+        "candidate_length_le16=178",
+        "candidate_length_le32=3959160832",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 31,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 13,
+      "sanitized_hex": "050300000001010000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 3,
+      "candidate_length_le16": 257,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=13_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=3",
+        "candidate_length_le16=257",
+        "candidate_length_le32=3959160832",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 32,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 264,
+      "sanitized_hex": "03030000000101 \u003cpayload:probe-3:257\u003e",
+      "candidate_opcode_byte": "0x03",
+      "candidate_stream_id_le32": 3,
+      "candidate_length_le16": 257,
+      "candidate_length_le32": 2054847098,
+      "candidate_payload_offset": 7,
+      "payload_placeholder": "\u003cpayload:probe-3:257\u003e",
+      "observed_label": "chan_possible_data_frame",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=264_bytes",
+        "candidate_opcode_byte=0x03",
+        "candidate_stream_id_le32=3",
+        "candidate_length_le16=257",
+        "candidate_length_le32=2054847098",
+        "candidate_payload_offset=7",
+        "candidate_data_or_metadata_frame",
+        "payload_bytes_redacted"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset",
+        "metadata_body_presence"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 33,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 26,
+      "sanitized_hex": "050300000000000000fceb0200050300000001010000fceb0200",
+      "candidate_opcode_byte": "0x05",
+      "candidate_stream_id_le32": 3,
+      "candidate_length_le32": 3959160832,
+      "observed_label": "chan_possible_stream_open",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=26_bytes",
+        "candidate_opcode_byte=0x05",
+        "candidate_stream_id_le32=3",
+        "candidate_length_le32=3959160832",
+        "candidate_open_or_control_frame"
+      ],
+      "unknown_fields": [
+        "frame_type",
+        "stream_or_correlation_id",
+        "payload_length_field",
+        "payload_offset"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "nps_to_npc",
+      "seq": 34,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 5,
+      "sanitized_hex": "0703000000",
+      "candidate_opcode_byte": "0x07",
+      "candidate_stream_id_le32": 3,
+      "close_candidate_direction": "nps_to_npc",
+      "close_candidate_after_event": "public_client_closed",
+      "close_candidate_stream_id": 3,
+      "close_semantics_evidence": "0x07 frame observed during bounded grace after public_client_closed",
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x07",
+        "candidate_stream_id_le32=3",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    },
+    {
+      "version": "gate6b1_fixture_v1",
+      "mode": "stock_nps_oracle",
+      "binary_sha256": {
+        "npc": "13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7",
+        "nps": "39f06032cc0eb6d66690838028031f87b4ca5a4fc0e8c8a9e8d669546be37508"
+      },
+      "connection_role": "legacy_nps_npc_chan",
+      "direction": "npc_to_nps",
+      "seq": 35,
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "byte_count": 5,
+      "sanitized_hex": "0703000000",
+      "candidate_opcode_byte": "0x07",
+      "candidate_stream_id_le32": 3,
+      "close_candidate_direction": "npc_to_nps",
+      "close_candidate_after_event": "public_client_closed",
+      "close_candidate_stream_id": 3,
+      "close_semantics_evidence": "0x07 frame observed during bounded grace after public_client_closed",
+      "observed_label": "chan_possible_ping",
+      "timing_marker": "probe_3_post_public_payload",
+      "known_field_annotations": [
+        "observed_frame_boundary=5_bytes",
+        "candidate_opcode_byte=0x07",
+        "candidate_stream_id_le32=3",
+        "candidate_short_control_frame"
+      ],
+      "unknown_fields": [
+        "ping_opcode",
+        "ping_payload_semantics"
+      ]
+    }
+  ],
+  "probe_summary": [
+    {
+      "probe_id": 1,
+      "public_connection_id": "public-1",
+      "payload_length": 5,
+      "close_action": "normal_echo_then_client_close",
+      "close_observation": "public client closed after echo; bounded chan grace observed"
+    },
+    {
+      "probe_id": 2,
+      "public_connection_id": "public-2",
+      "payload_length": 19,
+      "close_action": "normal_echo_then_client_close",
+      "close_observation": "public client closed after echo; bounded chan grace observed"
+    },
+    {
+      "probe_id": 3,
+      "public_connection_id": "public-3",
+      "payload_length": 257,
+      "close_action": "normal_echo_then_client_close",
+      "close_observation": "public client closed after echo; bounded chan grace observed"
+    }
+  ],
+  "field_map": {
+    "frame_boundaries": "Observed TCP read boundaries are recorded per chan frame; implementation must treat them as candidate protocol frame boundaries until validated by decoder tests.",
+    "frame_type_flag_candidates": [
+      "chan_post_handshake_unknown",
+      "chan_payload_related",
+      "chan_possible_stream_open",
+      "chan_possible_ping",
+      "chan_possible_data_frame"
+    ],
+    "stream_correlation_id_candidates": [
+      "candidate stream/correlation id offset bytes 1..4 little endian; observed public probes map to stream ids summarized in frame candidate_stream_id_le32 fields",
+      "stream/correlation id candidate requires comparing non-payload header bytes across at least two public connections; observed_probe_count=3"
+    ],
+    "payload_length_candidates": [
+      "payload frame candidate opcode byte 0x03; stream id candidate offset bytes 1..4 little endian; payload length candidate offset bytes 5..6 little endian; small probes observed direct payload offset byte 7, while the 257-byte probe observed a split 7-byte length header followed by a payload-only read",
+      "payload length candidate requires comparing frames for 5, 19, and 257 byte probes; observed_probe_count=3"
+    ],
+    "payload_offset_candidates": [
+      "candidate payload offset 7 for direct payload frames; split payload body can arrive as a later read after a 7-byte 0x03 length header; candidate metadata body offset 11 when bytes 7..10 little-endian length matches remaining body",
+      "payload offset candidate is any stable non-redacted header before payload placeholder; observed_probe_count=3"
+    ],
+    "metadata_open_stream_candidate": "large 0x03 nps_to_npc frames with length_le16=178 and nested length_le32=174 are open/metadata candidates; metadata_body_format, metadata_host_placeholder, metadata_remote_addr_placeholder, and sanitized preview fields record whether body is printable/json/binary_unknown and which semantic addresses appear.",
+    "tcp_payload_frame_candidate": "0x03 payload frames correlate with 5 / 19 / 257 byte probes; payload bytes are replaced with placeholders and candidate payload offset/length fields are recorded per frame.",
+    "close_reset_eof_candidate": "0x07 \u003cstream_id_le32\u003e short frames are close/reset candidates; close_candidate_direction, close_candidate_after_event, close_candidate_stream_id, and close_semantics_evidence are recorded when observed, but exact EOF/reset semantics remain unknown unless stable across probes.",
+    "ping_keepalive_candidate": "0x05 \u003cstream_id_le32\u003e and other short control frames are window/ack/control or ping candidates; exact semantics remain unknown.",
+    "target_selection_safety": "oracle target is configured by stock nps Web API setup to \u003ctarget_proxy_addr\u003e; metadata Host/RemoteAddr placeholders distinguish \u003ctarget_proxy_addr\u003e, \u003cnps_public_addr\u003e, \u003cnpc_bridge_addr\u003e, \u003cpublic_client_addr\u003e, \u003cecho_target_addr\u003e, and \u003cunknown_loopback_addr\u003e. Public payload is redacted and not used as a target address. Gate 6B-2 remains unsafe until target metadata and close behavior are reviewed together.",
+    "unknowns": [
+      "exact opcode byte positions",
+      "exact stream/correlation id byte positions",
+      "exact payload length field byte positions",
+      "exact close/reset/EOF semantics",
+      "whether observed target metadata is sufficient to construct safe minimal TCP target open"
+    ]
+  },
+  "readiness": "insufficient for 6B-2",
+  "target_tcp_observed": true,
+  "echo_success": true,
+  "session_control": {
+    "sequence": [
+      "npc_to_nps:0x00",
+      "nps_to_npc:0x00",
+      "nps_to_npc:0x08",
+      "npc_to_nps:0x08"
+    ],
+    "client_00_body_len": 30,
+    "server_00_body_len": 30,
+    "server_08_body_len": 30,
+    "client_08_body_len": 30,
+    "server_08_equals_client_00": true,
+    "client_08_equals_server_00": true,
+    "server_08_equals_server_00": false,
+    "client_08_equals_client_00": false,
+    "relationship_confirmed": true,
+    "complete": true,
+    "strict_decoder_rejected_stream": false
+  },
+  "redaction_policy": [
+    "vkey redacted",
+    "wire_token redacted",
+    "lookup_key redacted",
+    "raw_md5_vkey redacted",
+    "auth_key redacted",
+    "web_password redacted",
+    "full_command_args omitted",
+    "local_random_ports omitted",
+    "arbitrary_payload_bytes replaced with placeholders"
+  ],
+  "clean_room_constraints": [
+    "generated from pinned v0.26.34 release binaries as black-box oracle",
+    "no yisier/nps source inspected/imported/vendored/copied/derived",
+    "fixture contains sanitized non-secret observation bytes only"
+  ]
+}
