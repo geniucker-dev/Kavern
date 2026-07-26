@@ -1,14 +1,13 @@
 package legacy_npc
 
 import (
-	"bufio"
 	"context"
+	"crypto/md5"
 	"encoding/binary"
-	"errors"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/geniucker-dev/kavern/internal/domain"
@@ -19,14 +18,16 @@ const (
 	connTypeMain = "main"
 	connTypeChan = "chan"
 
+	legacyCoreVersion   = "0.26.0"
+	legacyClientVersion = "0.26.34"
+
 	defaultMaxHandshakeBytes = 4096
 	defaultHandshakeTimeout  = 5 * time.Second
 )
 
 type handshakeResult struct {
-	connType  string
-	deviceID  domain.DeviceID
-	lookupKey string
+	connType string
+	deviceID domain.DeviceID
 }
 
 func (g *Gateway) readHandshake(ctx context.Context, conn net.Conn) (handshakeResult, error) {
@@ -49,69 +50,63 @@ func (g *Gateway) readStockHandshake(ctx context.Context, conn net.Conn) (handsh
 	if string(preface[:]) != "TST" {
 		return handshakeResult{}, ErrInvalidHandshake
 	}
-	if _, err := readLengthPrefixedString(conn, g.maxHandshakeBytes); err != nil {
-		return handshakeResult{}, err
-	}
-	if _, err := readLengthPrefixedString(conn, g.maxHandshakeBytes); err != nil {
-		return handshakeResult{}, err
-	}
-	// Observed stock npc v0.26.34 version-test acknowledgement.
-	if _, err := conn.Write([]byte("TST")); err != nil {
-		return handshakeResult{}, err
-	}
-	challenge, err := g.newAuthChallenge()
+	coreVersion, err := readLengthPrefixedString(conn, g.maxHandshakeBytes)
 	if err != nil {
 		return handshakeResult{}, err
 	}
-	if len(challenge) != 32 {
-		return handshakeResult{}, ErrInvalidConfig
-	}
-	// Observed stock npc v0.26.34 auth challenge: uint32_le length + 32 bytes.
-	if err := writeLengthPrefixedBytes(conn, challenge, g.maxHandshakeBytes); err != nil {
-		return handshakeResult{}, err
-	}
-
-	var auth [36]byte
-	if _, err := io.ReadFull(conn, auth[:]); err != nil {
+	if coreVersion != legacyCoreVersion {
 		return handshakeResult{}, ErrInvalidHandshake
 	}
-	token := string(auth[:32])
-	connType := string(auth[32:])
-	return g.resolveHandshake(ctx, connType, token)
-}
-
-func (g *Gateway) readSyntheticLineHandshake(ctx context.Context, conn net.Conn) (handshakeResult, error) {
-	line, err := readBoundedLine(conn, g.maxHandshakeBytes)
-	if err != nil {
-		return handshakeResult{}, ErrInvalidHandshake
-	}
-	connType, token, err := parseHandshakeLine(line)
+	clientVersion, err := readLengthPrefixedString(conn, g.maxHandshakeBytes)
 	if err != nil {
 		return handshakeResult{}, err
 	}
+	if clientVersion != legacyClientVersion {
+		return handshakeResult{}, ErrInvalidHandshake
+	}
+	if err := writeAll(conn, legacyServerVersionField()); err != nil {
+		return handshakeResult{}, err
+	}
+	var tokenBytes [32]byte
+	if _, err := io.ReadFull(conn, tokenBytes[:]); err != nil {
+		return handshakeResult{}, ErrInvalidHandshake
+	}
+	deviceID, err := g.resolveLegacyToken(ctx, tokenBytes[:])
+	if err != nil {
+		_ = writeAll(conn, []byte("vkey"))
+		return handshakeResult{}, ErrInvalidHandshake
+	}
+	if err := writeAll(conn, []byte("sucs")); err != nil {
+		return handshakeResult{}, err
+	}
+	var connTypeBytes [4]byte
+	if _, err := io.ReadFull(conn, connTypeBytes[:]); err != nil {
+		return handshakeResult{}, ErrInvalidHandshake
+	}
+	connType := string(connTypeBytes[:])
 	if connType != connTypeMain && connType != connTypeChan {
 		return handshakeResult{}, ErrUnsupportedConnection
 	}
-	return g.resolveHandshake(ctx, connType, token)
+	return handshakeResult{connType: connType, deviceID: deviceID}, nil
 }
 
-func (g *Gateway) resolveHandshake(ctx context.Context, connType, token string) (handshakeResult, error) {
-	if connType != connTypeMain && connType != connTypeChan {
-		return handshakeResult{}, ErrUnsupportedConnection
+func (g *Gateway) resolveLegacyToken(ctx context.Context, token []byte) (domain.DeviceID, error) {
+	if !isStrictLegacyWireToken(token) {
+		return "", ErrInvalidHandshake
 	}
-	normalized, err := security.NormalizeLegacyWireToken(token)
+	normalized, err := security.NormalizeLegacyWireToken(string(token))
 	if err != nil {
-		return handshakeResult{}, ErrInvalidHandshake
+		return "", ErrInvalidHandshake
 	}
 	lookupKey, err := security.LegacyLookupKey(g.serverSecret, normalized)
 	if err != nil {
-		return handshakeResult{}, ErrInvalidHandshake
+		return "", ErrInvalidHandshake
 	}
 	device, err := g.store.ResolveLegacyDeviceForAuth(ctx, lookupKey)
 	if err != nil {
-		return handshakeResult{}, err
+		return "", ErrInvalidHandshake
 	}
-	return handshakeResult{connType: connType, deviceID: device.ID, lookupKey: lookupKey}, nil
+	return device.ID, nil
 }
 
 func readLengthPrefixedString(r io.Reader, max int) (string, error) {
@@ -127,8 +122,8 @@ func readLengthPrefixedBytes(r io.Reader, max int) ([]byte, error) {
 	if _, err := io.ReadFull(r, prefix[:]); err != nil {
 		return nil, ErrInvalidHandshake
 	}
-	size := binary.LittleEndian.Uint32(prefix[:])
-	if size == 0 || int(size) > max {
+	size := int32(binary.LittleEndian.Uint32(prefix[:]))
+	if size <= 0 || int(size) > max {
 		return nil, ErrInvalidHandshake
 	}
 	payload := make([]byte, int(size))
@@ -138,43 +133,21 @@ func readLengthPrefixedBytes(r io.Reader, max int) ([]byte, error) {
 	return payload, nil
 }
 
-func writeLengthPrefixedBytes(w io.Writer, payload []byte, max int) error {
-	if len(payload) == 0 || len(payload) > max {
-		return ErrInvalidHandshake
-	}
-	var prefix [4]byte
-	binary.LittleEndian.PutUint32(prefix[:], uint32(len(payload)))
-	if _, err := w.Write(prefix[:]); err != nil {
-		return err
-	}
-	_, err := w.Write(payload)
-	return err
+func legacyServerVersionField() []byte {
+	sum := md5.Sum([]byte(legacyCoreVersion))
+	field := make([]byte, hex.EncodedLen(len(sum)))
+	hex.Encode(field, sum[:])
+	return field
 }
 
-func readBoundedLine(r io.Reader, max int) (string, error) {
-	limited := io.LimitReader(r, int64(max)+1)
-	reader := bufio.NewReader(limited)
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
+func isStrictLegacyWireToken(token []byte) bool {
+	if len(token) != 32 {
+		return false
 	}
-	if len(line) > max {
-		return "", ErrInvalidHandshake
+	for _, value := range token {
+		if (value < '0' || value > '9') && (value < 'a' || value > 'f') {
+			return false
+		}
 	}
-	line = strings.TrimRight(line, "\r\n")
-	if line == "" {
-		return "", ErrInvalidHandshake
-	}
-	return line, nil
-}
-
-func parseHandshakeLine(line string) (connType, token string, err error) {
-	fields := strings.Fields(line)
-	if len(fields) != 2 {
-		return "", "", ErrInvalidHandshake
-	}
-	if len(fields[0]) > 16 {
-		return "", "", ErrUnsupportedConnection
-	}
-	return fields[0], fields[1], nil
+	return true
 }
