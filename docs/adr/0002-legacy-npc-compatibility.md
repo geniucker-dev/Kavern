@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for MVP Spec v1.
+Accepted for MVP Spec v1; amended by ADR 0005 for source-informed protocol compatibility.
 
 ## Context
 
@@ -23,6 +23,8 @@ npc -server=<host:port> -vkey=<vkey>
 ```
 
 Legacy tunnel behavior is configured server-side in `kavernd`. Legacy clients must not define arbitrary targets.
+
+The pinned v0.26.34 protocol contract is source-informed and independently implemented as described by ADR 0005. This is not a clean-room compatibility claim.
 
 ## Credential Handling
 
@@ -81,10 +83,11 @@ Before Gate 5 starts, the pinned `yisier/nps` tag or version must be selected an
 - `register`.
 - nps Web UI.
 - nps API.
-- Copying or importing `yisier/nps` GPL code.
+- Copying, importing, vendoring, or reusing `yisier/nps` GPL code, source files, identifiers, comments, tests, queue implementations, or window implementations.
 
 ## Consequences
 
 - Legacy compatibility is intentionally narrow.
 - The gateway may contain protocol-specific logic, but business logic must not.
 - Compatibility cannot be accepted until real binary integration passes.
+- Separate license/compliance review is required before closed-source commercial distribution.

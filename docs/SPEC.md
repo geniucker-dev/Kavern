@@ -32,7 +32,7 @@ This Gate 0 specification phase does not approve implementation. Do not create s
 
 - Rewriting `nps`.
 - Forking `nps`.
-- Copying, importing, vendoring, or deriving code from `yisier/nps` GPL source.
+- Copying, importing, vendoring, or reusing `yisier/nps` GPL code, source files, identifiers, comments, tests, queue implementations, or window implementations.
 - Full stock `npc` compatibility.
 - `npc -config`.
 - `conf`.
@@ -246,6 +246,11 @@ type CarrierPool interface {
 - Never needs the raw `vkey` during connection authentication.
 - Isolates all legacy MD5 compatibility handling.
 - Does not define business rules.
+- Uses the source-informed, independently implemented pinned v0.26.34 wire contract in `docs/protocol/legacy-npc-v0.26.34.md`. This is not a clean-room implementation claim; it requires separate GPL/compliance review before closed-source commercial distribution.
+
+### Legacy npc Protocol Boundary
+
+The legacy gateway supports only the pinned stock `npc v0.26.34` bridge handshake and TCP tunnel compatibility described in `docs/protocol/legacy-npc-v0.26.34.md`. It uses one outer bridge handshake, three mux frame layouts, and nine mux flags. Kavern must not import, vendor, copy, or reuse upstream GPL implementation material. The gateway's internal implementation remains separate from business logic and KAPv1.
 
 ### `AgentV1Gateway`
 

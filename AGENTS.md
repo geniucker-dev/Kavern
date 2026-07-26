@@ -50,7 +50,7 @@ Kavern is a brand-new tunneling project. It is not an `nps` rewrite, not an `nps
 npc -server=<host:port> -vkey=<vkey>
 ```
 
-Do not copy, vendor, import, or derive implementation from `yisier/nps` GPL code.
+The pinned v0.26.34 legacy protocol specification is source-informed. Kavern's implementation is an independent compatibility implementation, not a clean-room claim. Wire-required protocol facts may be independently implemented, including `TST`, `sucs`, `vkey`, `main`, `chan`, mux flag numbers, and required Link JSON keys. Do not copy, vendor, import, or reuse `yisier/nps` GPL source-level implementation material: source files, functions, comments, tests, identifiers, queue implementations, window implementations, or other implementation structure. A separate license/compliance review is required before closed-source commercial distribution.
 
 ## Implementation Status
 
@@ -140,6 +140,12 @@ After Gate 0 and after every implementation gate, generated files, diffs, and te
 7. Gate 6, Real npc TCP Echo Review: stock `npc` end-to-end TCP echo, `target_addr` safety, legacy mux boundary, timeouts.
 8. Gate 7, Benchmark Harness Review: `experiments/muxbench`, local benchmarks only, WAN benchmark explicitly manual, `smux`/`yamux`/`kavernmux` comparison plan.
 9. Gate 8, Security Review: parser limits, auth, token handling, no secret logs, no arbitrary target, disabled tunnel/device semantics.
+
+### Gate 6S Sequencing
+
+- Gate 6S-2 is not approved until Gate 6S-1 Protocol Contract Review passes.
+- Under the current Gate 6S-1 goal, no production `LegacyMux` or `LegacyNpcSession.OpenStream` work may begin.
+- Each Gate 6S subphase requires its own review; no later Gate 6S subphase may begin before the prior subphase passes review.
 
 ## Validation Expectations
 

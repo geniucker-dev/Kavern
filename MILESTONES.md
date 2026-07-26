@@ -129,6 +129,7 @@ Scope:
 - `target_addr` safety.
 - Legacy mux boundary.
 - Timeouts.
+- Source-informed independent v0.26.34 protocol compatibility, with GPL/compliance review before closed-source commercial distribution.
 
 Exit criteria:
 
@@ -136,6 +137,53 @@ Exit criteria:
 - `target_addr` is server-side and constrained.
 - Legacy mux details remain inside `internal/gateway/legacy_npc`.
 - Timeouts and cleanup are tested.
+
+## Gate 6S-1: Protocol Contract Review
+
+Scope:
+
+- Source-informed independent protocol documentation and GPL boundary.
+- Pinned outer bridge handshake.
+- Frame value types, parser/writer, and golden tests.
+
+Exit criteria:
+
+- The pinned handshake and three mux frame layouts are documented and tested.
+- No production mux, stream, session data-plane, router, or forwarding work is included.
+- Diff and test output are reviewed before Gate 6S-2 begins.
+
+## Gate 6S-2: Independent LegacyMux Review
+
+Scope:
+
+- Independent bounded legacy mux, stream lifecycle, ping, fixed window, and close behavior.
+- Unit and race tests only; no gateway/session integration.
+
+Exit criteria:
+
+- Mux resource limits and protocol behavior are reviewed before session integration begins.
+
+## Gate 6S-3: Session/Gateway Integration Review
+
+Scope:
+
+- Legacy mux chan lifecycle, `LegacyNpcSession.OpenStream`, server-side Link metadata, and real `NPC_BIN` TCP echo.
+
+Exit criteria:
+
+- Gateway/session integration and real stock NPC TCP echo are reviewed before robustness work begins.
+
+## Gate 6S-4: Robustness Review
+
+Scope:
+
+- Stream concurrency, close/reconnect/replacement, malformed frames, flow-control stall/recovery, race, and goroutine-leak testing.
+
+Exit criteria:
+
+- Robustness and bounded-resource behavior are reviewed before Gate 6S completion.
+
+Every Gate 6S subphase requires a separate review. No later Gate 6S subphase may begin before the immediately preceding subphase passes review.
 
 ## Gate 7: Benchmark Harness Review
 

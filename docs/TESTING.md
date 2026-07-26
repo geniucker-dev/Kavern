@@ -95,7 +95,7 @@ Scripts accepted in Gate 5: no
 
 For Gate 5, `NPC_BIN` must point to an executable downloaded from the pinned GitHub release assets. Do not use `master`, `latest`, or an unpinned binary. The review packet must include the `NPC_BIN` absolute path, asset/source provenance, and SHA-256 of the binary or archive used.
 
-Gate 5 implementation is clean-room and black-box. Do not inspect, import, vendor, copy, or derive from `yisier/nps` source code. Compatibility work may use only Kavern specs, public release metadata, and sanitized byte-level behavior observed from running the pinned real binary in local tests.
+Pinned legacy compatibility is a source-informed independent implementation documented in `docs/protocol/legacy-npc-v0.26.34.md`; it is not a clean-room claim. Tests and production code must not import, vendor, copy, or reuse `yisier/nps` GPL code, source files, identifiers, comments, tests, queue implementations, or window implementations. A separate license/compliance review is required before closed-source commercial distribution.
 
 Developers may keep pinned stock `nps`/`npc` release binaries in a project-local ignored cache instead of `/tmp`:
 
