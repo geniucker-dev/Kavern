@@ -2,6 +2,7 @@ package legacy_npc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math"
 	"net"
@@ -232,6 +233,17 @@ func (m *LegacyMux) Done() <-chan struct{} {
 	return m.done
 }
 
+// terminalErrorSnapshot provides session-level error mapping without exposing
+// mux internals outside the legacy gateway package.
+func (m *LegacyMux) terminalErrorSnapshot() (closed bool, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.closed {
+		return false, nil
+	}
+	return true, m.muxErrorLocked()
+}
+
 func (m *LegacyMux) Close() error {
 	m.shutdown(ErrLegacyMuxClosed)
 	m.wg.Wait()
@@ -322,7 +334,7 @@ func (m *LegacyMux) readerLoop() {
 	for {
 		frame, err := ReadFrame(m.conn)
 		if err != nil {
-			m.shutdown(err)
+			m.shutdown(normalizeLegacyFrameReadError(err))
 			return
 		}
 		if err := m.handleFrame(frame); err != nil {
@@ -330,6 +342,13 @@ func (m *LegacyMux) readerLoop() {
 			return
 		}
 	}
+}
+
+func normalizeLegacyFrameReadError(err error) error {
+	if errors.Is(err, ErrInvalidFrame) || errors.Is(err, ErrFrameTooLarge) {
+		return ErrLegacyProtocol
+	}
+	return err
 }
 
 func (m *LegacyMux) writerLoop() {

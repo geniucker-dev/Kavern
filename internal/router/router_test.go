@@ -107,6 +107,9 @@ func TestRouteTCPOpensStreamForEnabledTunnelAndDevice(t *testing.T) {
 	if req.TargetAddr != "" {
 		t.Fatalf("OpenStream TargetAddr = %q, want empty", req.TargetAddr)
 	}
+	if req.RemoteAddr != server.RemoteAddr().String() {
+		t.Fatalf("OpenStream RemoteAddr = %q, want %q", req.RemoteAddr, server.RemoteAddr())
+	}
 }
 
 func newRouterFixture(t *testing.T) (*store.MemoryStore, *session.Manager) {

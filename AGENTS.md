@@ -143,8 +143,11 @@ After Gate 0 and after every implementation gate, generated files, diffs, and te
 
 ### Gate 6S Sequencing
 
-- Gate 6S-2 is not approved until Gate 6S-1 Protocol Contract Review passes.
-- Under the current Gate 6S-1 goal, no production `LegacyMux` or `LegacyNpcSession.OpenStream` work may begin.
+- Gate 6S-1 and Gate 6S-2 have passed review. Gate 6S-3 session/gateway integration and real pinned `NPC_BIN` TCP echo are the current approved scope.
+- Gate 6S-3 legacy ownership is device-scoped: legacy main generations and the current legacy mux are independent runtime fields. Replacing a legacy main does not inherently close the device's current mux; replacing a chan closes only the old mux.
+- Authenticated legacy main transitions register device-runtime interest before serialization. A chan remains retained while any live current/attached legacy main or pending main transition exists; state notifications are wakeups, not readiness truth.
+- Legacy main runtime leases and pending-transition interest are acquired atomically. Each authenticated main starts one lifecycle-bound connection monitor before transition serialization; no later code may read that main connection concurrently.
+- Gate 6S-4 robustness work is not approved in the current goal.
 - Each Gate 6S subphase requires its own review; no later Gate 6S subphase may begin before the prior subphase passes review.
 
 ## Validation Expectations

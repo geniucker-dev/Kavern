@@ -71,4 +71,5 @@ type StreamOpenRequest struct {
 	TunnelID   TunnelID
 	Protocol   TunnelProtocol
 	TargetAddr string
+	RemoteAddr string
 }

@@ -22,6 +22,34 @@ The protocol contract lives in `docs/protocol/legacy-npc-v0.26.34.md`. It define
 
 Receiving logical-stream close `0x07` will be treated as a stream close, not TCP half-close: it rejects new local writes, wakes blocked writers, drains already queued inbound bytes before EOF, and allows at most one local close response. Duplicate close is ignored.
 
+Legacy online signal and tunnel-mux ownership are independent fields of a
+Kavern-owned, device-scoped runtime. The runtime records the newest
+authenticated legacy main candidate, the exact legacy main confirmed current
+by `SessionManager`, and at most one mux generation. Legacy-main replacement
+does not inherently close the current mux or already returned logical streams;
+chan replacement closes only the prior mux. A chan may wait boundedly for a
+legacy main even when another protocol is currently registered for the device.
+
+Runtime storage is refcounted by explicit main-transition, main-session, and
+chan-handler leases. Entries are removed only after every owner has completed
+state cleanup, so repeated replacements do not create permanent per-device
+state.
+
+Pending authenticated main transitions are counted separately from runtime
+leases. A pending transition is device main interest even while queued behind
+another transition or while `SessionManager.Attach` is closing a replaced
+session. Failed, canceled, superseded, and successful transitions decrement the
+count exactly once before deciding whether an orphaned mux should close.
+Manager consistency queries and detaches each receive a fresh bounded cleanup
+context.
+
+Main runtime acquisition atomically reserves the transition lease, session
+lease, and pending-transition interest under the runtime-map-to-device-runtime
+lock order. A single post-handshake monitor owns subsequent reads from each
+main connection and binds EOF and parent cancellation to session lifecycle.
+Candidate publication, stream admission, liveness checks, and attachment commit
+all reject a canceled lifecycle.
+
 ## Consequences
 
 - Compatibility remains limited to server-configured TCP tunnels.

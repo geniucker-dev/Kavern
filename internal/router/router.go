@@ -66,9 +66,15 @@ func (r *Router) RouteTCP(ctx context.Context, tunnel domain.Tunnel, inbound net
 	if err != nil {
 		return err
 	}
+	remoteAddr := ""
+	if inbound != nil && inbound.RemoteAddr() != nil {
+		remoteAddr = inbound.RemoteAddr().String()
+	}
 	stream, err := current.OpenStream(ctx, domain.StreamOpenRequest{
-		TunnelID: tunnel.ID,
-		Protocol: storeProtocol(tunnel),
+		TunnelID:   tunnel.ID,
+		Protocol:   storeProtocol(tunnel),
+		TargetAddr: "",
+		RemoteAddr: remoteAddr,
 	})
 	if err != nil {
 		return err

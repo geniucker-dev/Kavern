@@ -35,6 +35,11 @@ func (m *Manager) Attach(ctx context.Context, next AgentSession) error {
 
 	var replaced AgentSession
 	m.mu.Lock()
+	// Cancellation linearizes here, before any publication state is accessed.
+	if err := ctx.Err(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	if existing := m.byID[next.ID()]; existing != nil {
 		m.mu.Unlock()
 		return ErrDuplicateSessionID

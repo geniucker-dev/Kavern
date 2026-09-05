@@ -30,6 +30,9 @@ type AgentSessionInfo struct {
 }
 
 type SessionManager interface {
+	// Attach returning an error guarantees that this call did not publish the
+	// new session, change current/byID/history, or close the prior session.
+	// After successful publication, errors closing the replaced session are ignored.
 	Attach(ctx context.Context, session AgentSession) error
 	Detach(ctx context.Context, sessionID domain.SessionID) error
 	CurrentForDevice(ctx context.Context, deviceID domain.DeviceID) (AgentSession, error)

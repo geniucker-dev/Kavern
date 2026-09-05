@@ -70,6 +70,24 @@ Expected command shape:
 NPC_BIN=/absolute/path/to/npc go test -tags=legacy_npc_integration ./tests/legacy_npc
 ```
 
+Gate 6S-3 real TCP echo acceptance uses the pinned stock binary and does not
+require `NPS_BIN`:
+
+```sh
+NPC_BIN="$PWD/.kavern-testbin/nps-v0.26.34/npc" \
+PATH=/usr/local/go/bin:$PATH \
+go test -tags=legacy_npc_integration \
+  ./tests/legacy_npc \
+  -run 'TestLegacyNPC(TCPEcho|MainReplacement)' \
+  -count=1 -v -timeout=60s
+```
+
+`TestLegacyNPCMainReplacement` starts two pinned stock clients with the same
+device credential and verifies that legacy-main replacement leaves the final
+manager-current session with a usable device-scoped mux. It remains a bounded
+Gate 6S-3 startup/replacement acceptance test, not the Gate 6S-4 payload and
+flow-control matrix.
+
 If the tag is enabled without `NPC_BIN`, the expected result is a clear failure explaining that `NPC_BIN` is required.
 
 ## Stock npc Binary Acquisition

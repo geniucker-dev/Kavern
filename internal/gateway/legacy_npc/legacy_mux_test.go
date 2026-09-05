@@ -153,6 +153,44 @@ func TestLegacyMuxMalformedFrameClosesMux(t *testing.T) {
 	waitMuxDone(t, mux)
 }
 
+func TestLegacyMuxFrameCodecErrorsNormalizeToProtocolAfterSessionClear(t *testing.T) {
+	tests := []struct {
+		name string
+		wire []byte
+	}{
+		{name: "unknown flag", wire: []byte{0x09, 1, 0, 0, 0}},
+		{name: "invalid stream id", wire: []byte{byte(FrameFlagDataFinal), 0, 0, 0, 0, 0, 0}},
+		{name: "oversized content", wire: []byte{byte(FrameFlagDataFinal), 1, 0, 0, 0, 0xf6, 0x0f}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session, _ := newLegacySessionFixture(t)
+			mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+			generation, _, err := session.installMux(mux)
+			if err != nil {
+				t.Fatal(err)
+			}
+			acknowledgeInitialPing(t, peer)
+			if _, err := peer.Write(tt.wire); err != nil {
+				t.Fatalf("write malformed frame: %v", err)
+			}
+			waitMuxDone(t, mux)
+			_, terminalErr := mux.terminalErrorSnapshot()
+			if !errors.Is(terminalErr, ErrLegacyProtocol) {
+				t.Fatalf("terminal error = %v, want ErrLegacyProtocol", terminalErr)
+			}
+			session.clearMuxIfCurrent(mux, generation)
+			mapped := session.mapMuxOperationError(context.Background(), mux, generation, nil)
+			if !errors.Is(mapped, ErrLegacyProtocol) {
+				t.Fatalf("mapped error after clear = %v, want ErrLegacyProtocol", mapped)
+			}
+			if errors.Is(mapped, ErrLegacyDataChannelUnavailable) {
+				t.Fatalf("protocol error became retryable unavailable: %v", mapped)
+			}
+		})
+	}
+}
+
 func TestLegacyMuxPeerPingBodiesAreEchoed(t *testing.T) {
 	_, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
 	acknowledgeInitialPing(t, peer)

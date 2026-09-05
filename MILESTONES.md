@@ -171,6 +171,15 @@ Scope:
 
 Exit criteria:
 
+- One refcounted device runtime independently owns the current legacy main candidate, manager-confirmed attached main, and current mux generation.
+- Legacy-main replacement preserves the device mux and already returned streams; chan replacement closes only the old mux and is generation-safe.
+- Chan-before-main and cross-protocol-to-legacy overlap rendezvous are event-driven, bounded by the handshake timeout, and cannot publish a superseded main as ready.
+- Pending authenticated main transitions retain the device mux across queued, blocked, failed, canceled, and superseded attachment races; the last failed interest owner performs orphan cleanup.
+- Manager-current verification and detach cleanup use separate fresh timeout-bounded contexts and cannot retain the transition lock or runtime leases indefinitely.
+- Main runtime leases and transition interest are acquired atomically, and one lifecycle-bound reader detects queued or in-progress main disconnection before publication or stream admission.
+- `LegacyNpcSession.OpenStream` validates stored enabled TCP tunnel/device state and writes deterministic Link metadata using only stored `Tunnel.TargetAddr`.
+- A real pinned `NPC_BIN` TCP echo traverses public Router, legacy session, LegacyMux, stock npc, and the configured local target without `NPS_BIN`.
+- A real pinned `NPC_BIN` duplicate-main replacement leaves the final current legacy session with a usable mux and successful Router echo.
 - Gateway/session integration and real stock NPC TCP echo are reviewed before robustness work begins.
 
 ## Gate 6S-4: Robustness Review

@@ -13,31 +13,33 @@ import (
 	"github.com/geniucker-dev/kavern/internal/session"
 )
 
-type DeviceResolver interface {
+type LegacyStore interface {
 	ResolveLegacyDeviceForAuth(ctx context.Context, lookupKey string) (domain.Device, error)
+	GetDevice(ctx context.Context, id domain.DeviceID) (domain.Device, error)
+	GetTunnel(ctx context.Context, id domain.TunnelID) (domain.Tunnel, error)
 }
 
 type Config struct {
 	ServerSecret      []byte
-	Store             DeviceResolver
+	Store             LegacyStore
 	Sessions          session.SessionManager
+	MuxConfig         LegacyMuxConfig
 	HandshakeTimeout  time.Duration
 	MaxHandshakeBytes int
 	NewSessionID      func() (domain.SessionID, error)
-	NewAuthChallenge  func() ([]byte, error)
 }
 
 type Gateway struct {
-	store             DeviceResolver
+	store             LegacyStore
 	sessions          session.SessionManager
 	serverSecret      []byte
 	handshakeTimeout  time.Duration
 	maxHandshakeBytes int
 	newSessionID      func() (domain.SessionID, error)
-	newAuthChallenge  func() ([]byte, error)
+	muxConfig         LegacyMuxConfig
 
-	mu           sync.Mutex
-	sessionsByID map[domain.SessionID]*LegacyNpcSession
+	runtimeMu sync.Mutex
+	runtimes  map[domain.DeviceID]*legacyRuntimeEntry
 }
 
 func New(cfg Config) (*Gateway, error) {
@@ -56,9 +58,9 @@ func New(cfg Config) (*Gateway, error) {
 	if newSessionID == nil {
 		newSessionID = generateSessionID
 	}
-	newAuthChallenge := cfg.NewAuthChallenge
-	if newAuthChallenge == nil {
-		newAuthChallenge = generateAuthChallenge
+	muxConfig, err := normalizeLegacyMuxConfig(cfg.MuxConfig)
+	if err != nil {
+		return nil, err
 	}
 	return &Gateway{
 		store:             cfg.Store,
@@ -67,8 +69,8 @@ func New(cfg Config) (*Gateway, error) {
 		handshakeTimeout:  timeout,
 		maxHandshakeBytes: maxHandshakeBytes,
 		newSessionID:      newSessionID,
-		newAuthChallenge:  newAuthChallenge,
-		sessionsByID:      make(map[domain.SessionID]*LegacyNpcSession),
+		muxConfig:         muxConfig,
+		runtimes:          make(map[domain.DeviceID]*legacyRuntimeEntry),
 	}, nil
 }
 
@@ -116,68 +118,189 @@ func (g *Gateway) ServeConn(ctx context.Context, conn net.Conn) error {
 	}
 }
 
-func (g *Gateway) serveMain(ctx context.Context, conn net.Conn, deviceID domain.DeviceID) error {
+func (g *Gateway) serveMain(ctx context.Context, conn net.Conn, deviceID domain.DeviceID) (resultErr error) {
+	transitionLease, sessionLease := g.acquireMainRuntime(deviceID)
+	defer func() {
+		resultErr = joinLegacyErrors(resultErr, transitionLease.Release())
+	}()
+	runtime := transitionLease.Runtime()
 	sessionID, err := g.newSessionID()
-	if err != nil {
+	if err != nil || sessionID == "" {
+		if err == nil {
+			err = ErrInvalidHandshake
+		}
+		muxToClose, finishErr := runtime.finishUnpublishedMainTransition()
 		_ = conn.Close()
-		return err
+		if muxToClose != nil {
+			_ = muxToClose.Close()
+		}
+		releaseErr := sessionLease.Release()
+		return joinLegacyErrors(finishErr, joinLegacyErrors(releaseErr, err))
 	}
-	if sessionID == "" {
-		_ = conn.Close()
-		return ErrInvalidHandshake
-	}
-	legacySession := newSession(sessionID, deviceID, conn)
-	if err := g.sessions.Attach(ctx, legacySession); err != nil {
+	legacySession := newSessionWithContext(ctx, sessionID, deviceID, conn, g.store, runtime, sessionLease)
+	if err := legacySession.startMainMonitor(); err != nil {
+		muxToClose, finishErr := runtime.finishUnpublishedMainTransition()
 		_ = legacySession.Close(context.Background())
+		if muxToClose != nil {
+			_ = muxToClose.Close()
+		}
+		return joinLegacyErrors(finishErr, err)
+	}
+	if !runtime.mainTransitionSessionLive(legacySession) {
+		muxToClose, finishErr := runtime.finishUnpublishedMainTransition()
+		_ = legacySession.Close(context.Background())
+		if muxToClose != nil {
+			_ = muxToClose.Close()
+		}
+		return joinLegacyErrors(finishErr, ctx.Err())
+	}
+
+	runtime.mainTransitionMu.Lock()
+	priorCurrent, priorAttached, published := runtime.publishMainCandidate(legacySession)
+	if !published {
+		muxToClose, finishErr := runtime.finishUnpublishedMainTransition()
+		runtime.mainTransitionMu.Unlock()
+		_ = legacySession.Close(context.Background())
+		if muxToClose != nil {
+			_ = muxToClose.Close()
+		}
+		return joinLegacyErrors(finishErr, ctx.Err())
+	}
+	attachErr := g.sessions.Attach(legacySession.lifecycleCtx, legacySession)
+	managerCurrent, currentErr := g.currentSessionForCleanup(ctx, deviceID)
+	if attachErr != nil {
+		lifecycleCanceled := legacySession.lifecycleCtx.Err() != nil
+		muxToClose, reconcileErr := runtime.reconcileFailedAttach(legacySession, priorCurrent, priorAttached, observeManager(managerCurrent, currentErr))
+		runtime.mainTransitionMu.Unlock()
+		_ = legacySession.Close(context.Background())
+		if muxToClose != nil {
+			_ = muxToClose.Close()
+		}
+		if reconcileErr != nil {
+			return reconcileErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if lifecycleCanceled {
+			return nil
+		}
+		return attachErr
+	}
+	committed := false
+	var commitErr error
+	if currentErr == nil {
+		committed, commitErr = runtime.commitAttachedMain(ctx, legacySession, managerCurrent)
+	}
+	if !committed {
+		managerStillExpected := currentErr == nil && sameAgentSession(managerCurrent, legacySession)
+		muxToClose, reconcileErr := runtime.reconcileFailedMain(legacySession, priorCurrent, priorAttached, managerCurrent)
+		runtime.mainTransitionMu.Unlock()
+		_ = legacySession.Close(context.Background())
+		_ = g.detachSessionForCleanup(ctx, sessionID)
+		if muxToClose != nil {
+			_ = muxToClose.Close()
+		}
+		if commitErr != nil {
+			return commitErr
+		}
+		if reconcileErr != nil {
+			return reconcileErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if currentErr != nil {
+			return currentErr
+		}
+		if managerStillExpected {
+			return nil
+		}
+		return errLegacyMainSuperseded
+	}
+	runtime.mainTransitionMu.Unlock()
+	if err := transitionLease.Release(); err != nil {
 		return err
 	}
-	g.mu.Lock()
-	g.sessionsByID[sessionID] = legacySession
-	g.mu.Unlock()
+	transitionLease = nil
 
 	defer func() {
 		_ = legacySession.Close(context.Background())
-		_ = g.sessions.Detach(context.Background(), sessionID)
-		g.mu.Lock()
-		delete(g.sessionsByID, sessionID)
-		g.mu.Unlock()
+		_ = g.detachSessionForCleanup(ctx, sessionID)
 	}()
-	go func() {
-		<-ctx.Done()
-		_ = legacySession.Close(context.Background())
-	}()
-	legacySession.waitMainEOF()
+	legacySession.waitMainMonitor()
 	return nil
 }
 
-func (g *Gateway) serveChan(ctx context.Context, conn net.Conn, deviceID domain.DeviceID) error {
-	current, err := g.sessions.CurrentForDevice(ctx, deviceID)
+func (g *Gateway) serveChan(ctx context.Context, conn net.Conn, deviceID domain.DeviceID) (resultErr error) {
+	lease := g.acquireRuntime(deviceID, legacyRuntimeLeaseChan)
+	defer func() {
+		resultErr = joinLegacyErrors(resultErr, lease.Release())
+	}()
+	runtime := lease.Runtime()
+	mux, err := NewLegacyMux(conn, g.muxConfig)
 	if err != nil {
 		_ = conn.Close()
 		return err
 	}
-	legacySession, ok := current.(*LegacyNpcSession)
-	if !ok || legacySession.Protocol() != domain.AgentProtocolLegacyNPC {
-		_ = conn.Close()
-		return ErrNoCurrentMainSession
-	}
-	if err := legacySession.addChan(conn); err != nil {
-		_ = conn.Close()
-		return err
-	}
-	defer legacySession.removeChan(conn)
-	go func() {
-		<-ctx.Done()
-		_ = conn.Close()
-	}()
-
-	var buf [1]byte
-	for {
-		if _, err := conn.Read(buf[:]); err != nil {
-			_ = conn.Close()
+	generation, oldMux, err := runtime.installMux(mux)
+	if err != nil {
+		if errors.Is(err, ErrLegacyMuxAlreadyInstalled) {
+			return err
+		}
+		closed, terminalErr := mux.terminalErrorSnapshot()
+		_ = mux.Close()
+		if closed && errors.Is(classifyLegacyMuxTerminalCause(terminalErr), ErrLegacyDataChannelUnavailable) {
 			return nil
 		}
+		return err
 	}
+	if oldMux != nil {
+		_ = oldMux.Close()
+	}
+	if err := runtime.waitForMainInterest(ctx, mux, generation, g.handshakeTimeout); err != nil {
+		_ = mux.Close()
+		if errors.Is(err, ErrLegacyDataChannelReplaced) {
+			return nil
+		}
+		if isLegacyTransportError(err) || errors.Is(err, ErrLegacyDataChannelUnavailable) {
+			return nil
+		}
+		return err
+	}
+
+	var terminalErr error
+	select {
+	case <-mux.Done():
+		_, terminalErr = mux.terminalErrorSnapshot()
+	case <-ctx.Done():
+	}
+	runtime.clearMuxIfCurrent(mux, generation)
+	_ = mux.Close()
+	return classifyServeChanExit(ctx, terminalErr)
+}
+
+func (g *Gateway) currentSessionForCleanup(parent context.Context, deviceID domain.DeviceID) (session.AgentSession, error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), g.handshakeTimeout)
+	defer cancel()
+	return g.sessions.CurrentForDevice(ctx, deviceID)
+}
+
+func (g *Gateway) detachSessionForCleanup(parent context.Context, sessionID domain.SessionID) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), g.handshakeTimeout)
+	defer cancel()
+	return g.sessions.Detach(ctx, sessionID)
+}
+
+func classifyServeChanExit(ctx context.Context, terminalErr error) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	classified := classifyLegacyMuxTerminalCause(terminalErr)
+	if errors.Is(classified, ErrLegacyDataChannelUnavailable) {
+		return nil
+	}
+	return classified
 }
 
 func generateSessionID() (domain.SessionID, error) {
@@ -186,12 +309,4 @@ func generateSessionID() (domain.SessionID, error) {
 		return "", err
 	}
 	return domain.SessionID(base64.RawURLEncoding.EncodeToString(raw)), nil
-}
-
-func generateAuthChallenge() ([]byte, error) {
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return nil, err
-	}
-	return raw, nil
 }

@@ -231,6 +231,10 @@ type CarrierPool interface {
 }
 ```
 
+`StreamOpenRequest.RemoteAddr` is metadata only. `TunnelRouter` always leaves
+`StreamOpenRequest.TargetAddr` empty; no public connection detail or payload
+may select a target address.
+
 ## Gateway Boundaries
 
 ### `LegacyNpcGateway`
@@ -251,6 +255,47 @@ type CarrierPool interface {
 ### Legacy npc Protocol Boundary
 
 The legacy gateway supports only the pinned stock `npc v0.26.34` bridge handshake and TCP tunnel compatibility described in `docs/protocol/legacy-npc-v0.26.34.md`. It uses one outer bridge handshake, three mux frame layouts, and nine mux flags. Kavern must not import, vendor, copy, or reuse upstream GPL implementation material. The gateway's internal implementation remains separate from business logic and KAPv1.
+
+The KAPv1 data path is `AgentSession -> CarrierPool -> smux -> kavern-agent`.
+The legacy path is `LegacyNpcSession -> LegacyMux -> Link metadata -> stock npc`.
+For legacy streams, Link `Host` comes only from the enabled stored
+`Tunnel.TargetAddr`; `RemoteAddr` is metadata only.
+
+Legacy main and chan ownership are coordinated by a bounded device-scoped
+runtime. Its newest authenticated legacy main candidate controls whether a
+session may start a new stream, while a separately recorded attached main is
+readiness evidence that `SessionManager` still exposes that exact legacy
+session. The runtime owns at most one replaceable `LegacyMux`. Replacing a
+legacy main preserves that mux and already returned logical streams; replacing
+the chan closes only the old mux. A current-main disconnect with no viable
+legacy replacement closes the mux and makes the device offline.
+
+Every authenticated legacy main registers a pending transition before waiting
+for the per-device transition lock. Pending transitions, a live current main,
+and a live attached main are the authoritative forms of main interest. The
+device mux is detached only after the last form of interest is gone. Runtime
+notifications rotate on each relevant state change, but waiters always recheck
+the protected state and never interpret notification delivery as readiness.
+
+An authenticated legacy chan may arrive before the first legacy main, or while
+another protocol is current. It installs as the single device mux and waits
+event-driven for a manager-confirmed legacy main for at most the handshake
+timeout. This rendezvous does not poll and does not create an unbounded pending
+chan collection.
+
+Post-attachment manager verification and cleanup use a fresh timeout-bounded,
+non-cancelable context for each `CurrentForDevice` or `Detach` call. The
+original connection context is still rechecked at publication and commit
+linearization points, so an earlier successful check cannot publish a canceled
+main as attached.
+
+The main-transition lease, main-session lease, and pending-transition count are
+reserved in one runtime-map-to-device-runtime critical section. This prevents a
+predecessor cleanup from observing no main interest after a successor has begun
+acquisition. After construction, one lifecycle-bound monitor owns all reads
+from the legacy main connection. EOF or cancellation invalidates the session
+before publication or stream creation, and session cleanup closes the
+connection and joins that monitor.
 
 ### `AgentV1Gateway`
 
@@ -308,6 +353,8 @@ Real stock `npc` compatibility is not complete unless an integration test actual
 
 ## TCP Tunnel Flow
 
+### KAPv1
+
 ```text
 client
   |
@@ -343,6 +390,17 @@ bidirectional copy with deadlines, limits, and cancellation
 ```
 
 `target_addr` must be constrained by server-side tunnel configuration. Legacy `npc` must not be allowed to request arbitrary targets.
+
+### Legacy npc
+
+```text
+public TCP connection
+  -> TunnelRouter.RouteTCP
+  -> LegacyNpcSession.OpenStream
+  -> current LegacyMux logical stream
+  -> deterministic Link metadata (stored Tunnel.TargetAddr only)
+  -> stock npc dials the configured TCP target
+```
 
 ## HTTP Tunnel Placeholder
 
