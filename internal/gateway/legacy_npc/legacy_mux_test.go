@@ -1,12 +1,201 @@
 package legacy_npc
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestLegacyMuxPingWindowDataFairnessBoundedDispatches(t *testing.T) {
+	cfg, err := normalizeLegacyMuxConfig(LegacyMuxConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No workers: exercise the production selector/completion state machine
+	// with permanently ready classes and count service, not elapsed time.
+	m := &LegacyMux{cfg: cfg, streams: make(map[int32]*LegacyStream), tombstones: make(map[int32]*legacyTombstone), stateNotify: make(chan struct{}), nextControlOpen: true}
+	m.cond = sync.NewCond(&m.mu)
+	window := newLegacyStream(m, 1)
+	window.state = legacyStreamOpen
+	data := newLegacyStream(m, 2)
+	data.state = legacyStreamOpen
+	m.streams[1], m.streams[2] = window, data
+	refill := func() {
+		if m.pingCount == 0 && !m.enqueuePingResponseLocked([]byte("opaque")) {
+			t.Fatal("ping fixture admission failed")
+		}
+		if m.openCount == 0 && !m.enqueuePeerRejectLocked(3) {
+			t.Fatal("control fixture admission failed")
+		}
+		if m.windowCount == 0 {
+			window.pendingConsumed = 1
+			m.ensureWindowDescriptorLocked(window)
+		}
+		if m.dataCount == 0 {
+			data.dataQueue = []Frame{{Flag: FrameFlagDataFinal, StreamID: 2, Content: []byte{1}}}
+			data.dataReady = true
+			m.dataReady = append(m.dataReady, 2)
+			m.dataCount++
+			m.totalCount++
+		}
+	}
+	controls, lastOpen, lastWindow, consecutivePing, controlsSinceData := 0, 0, 0, 0, 0
+	maxPing, maxControls, dataServed := 0, 0, 0
+	for step := 0; step < 512; step++ {
+		refill()
+		item := m.nextOutboundLocked()
+		if item == nil {
+			t.Fatal("scheduler ignored ready classes")
+		}
+		var wire bytes.Buffer
+		if err := WriteFrame(&wire, item.frame); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadFrame(&wire); err != nil {
+			t.Fatal(err)
+		}
+		if item.kind == legacyOutboundData {
+			controlsSinceData = 0
+			dataServed++
+		} else {
+			controls++
+			controlsSinceData++
+			if controlsSinceData > maxControls {
+				maxControls = controlsSinceData
+			}
+		}
+		if item.kind == legacyOutboundPingResponse {
+			consecutivePing++
+		} else if item.kind != legacyOutboundData {
+			consecutivePing = 0
+		}
+		if consecutivePing > maxPing {
+			maxPing = consecutivePing
+		}
+		if item.kind == legacyOutboundReject {
+			lastOpen = controls
+		}
+		if item.kind == legacyOutboundWindow {
+			lastWindow = controls
+		}
+		if consecutivePing > 4 || controlsSinceData > 16 || controls-lastOpen > 10 || controls-lastWindow > 10 {
+			t.Fatal("bounded writer fairness was violated")
+		}
+		m.completeWrittenLocked(*item)
+		assertLegacyMuxQueueAccounting(t, m)
+	}
+	if dataServed == 0 {
+		t.Fatal("data was starved")
+	}
+	t.Logf("512 dispatches: max ping burst=%d max control burst=%d data dispatches=%d", maxPing, maxControls, dataServed)
+}
+
+func TestLegacyMuxCloseBarrierWinsReleasedQueueCapacity(t *testing.T) {
+	cfg := LegacyMuxConfig{MaxStreams: 2, MaxControlFrames: 28, MaxQueuedFramesTotal: 29}
+	mux, peer := newLegacyMuxPipe(t, cfg)
+	acknowledgeInitialPing(t, peer)
+	first := openPeerStream(t, mux, peer)
+	second := openPeerStream(t, mux, peer)
+	if _, err := first.Write([]byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	waitForMuxState(t, mux, func() bool { return mux.dataCount == 1 && len(first.dataQueue) == 0 })
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	runRobustnessWorker(t, mux, func() { _, err := second.Write([]byte("second")); result <- err })
+	frame := readPeerFrame(t, peer)
+	if frame.Flag != FrameFlagDataFinal || frame.StreamID != first.id {
+		t.Fatal("first data was overtaken")
+	}
+	waitForMuxState(t, mux, func() bool { return first.closeInFlight && mux.dataCount == 1 })
+	select {
+	case <-result:
+		t.Fatal("producer stole close barrier capacity")
+	default:
+	}
+	assertLegacyMuxQueueAccounting(t, mux)
+	frame = readPeerFrame(t, peer)
+	if frame.Flag != FrameFlagStreamClose || frame.StreamID != first.id {
+		t.Fatal("close barrier did not win the released slot")
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(robustnessWait):
+		t.Fatal("producer did not resume after close")
+	}
+	frame = readPeerFrame(t, peer)
+	if frame.Flag != FrameFlagDataFinal || frame.StreamID != second.id {
+		t.Fatal("unrelated data was lost")
+	}
+	assertLegacyMuxQueueAccounting(t, mux)
+}
+
+func TestLegacyMuxOperationErrorsAreSanitized(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		t.Run(fmt.Sprint("pending=", pending), func(t *testing.T) {
+			mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+			acknowledgeInitialPing(t, peer)
+			var stream *LegacyStream
+			result := make(chan error, 1)
+			if pending {
+				runRobustnessWorker(t, mux, func() { _, err := mux.OpenStream(context.Background()); result <- err })
+				readPeerFrame(t, peer)
+			} else {
+				stream = openPeerStream(t, mux, peer)
+			}
+			cause := &net.OpError{Op: "write", Net: "tcp", Source: &net.TCPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 9875}, Addr: &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 9876}, Err: errors.New("sensitive-test-material")}
+			mux.shutdown(cause)
+			if pending {
+				assertSanitizedMuxError(t, <-result)
+			} else {
+				_, err := stream.Write([]byte("test"))
+				assertSanitizedMuxError(t, err)
+				_, err = stream.Read(make([]byte, 1))
+				assertSanitizedMuxError(t, err)
+			}
+			_, err := mux.OpenStream(context.Background())
+			assertSanitizedMuxError(t, err)
+		})
+	}
+}
+
+func assertSanitizedMuxError(t *testing.T, err error) {
+	t.Helper()
+	var raw *net.OpError
+	if !errors.Is(err, ErrLegacyMuxClosed) || errors.As(err, &raw) || strings.Contains(err.Error(), "192.0.2.") || strings.Contains(err.Error(), "sensitive-test-material") {
+		t.Fatal("mux operation did not return a sanitized failure")
+	}
+}
+
+func TestLegacyMuxOperationErrorsPreserveSafeSentinels(t *testing.T) {
+	for _, cause := range []error{ErrLegacyProtocol, ErrLegacyReceiveLimit, ErrLegacyPingTimeout, ErrLegacyMuxClosed, ErrLegacyStreamClosed, context.Canceled, context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+			acknowledgeInitialPing(t, peer)
+			stream := openPeerStream(t, mux, peer)
+			mux.shutdown(fmt.Errorf("sensitive-test-material: %w", cause))
+			_, readErr := stream.Read(make([]byte, 1))
+			_, writeErr := stream.Write([]byte("x"))
+			for _, err := range []error{readErr, writeErr} {
+				if !errors.Is(err, cause) || strings.Contains(err.Error(), "sensitive-test-material") {
+					t.Fatal("stream operation lost its safe sentinel")
+				}
+			}
+		})
+	}
+}
 
 func TestLegacyMuxConfigFixedReceiveWindowBounds(t *testing.T) {
 	for _, value := range []uint32{4085, 122549} {
@@ -593,10 +782,11 @@ func TestLegacyMuxQueueBlockedWriteResumesAndCloseInterrupts(t *testing.T) {
 		}{n: n, err: err}
 	}()
 
+	waitForMuxState(t, mux, func() bool { return mux.dataCount == 1 && stream.outstanding == 4085 })
 	select {
 	case <-writeDone:
 		t.Fatal("Write() completed while the one-frame data queue was full")
-	case <-time.After(30 * time.Millisecond):
+	default:
 	}
 	first := readPeerFrame(t, peer)
 	if first.Flag != FrameFlagDataContinue {
@@ -622,10 +812,11 @@ func TestLegacyMuxQueueBlockedWriteResumesAndCloseInterrupts(t *testing.T) {
 			err error
 		}{n: n, err: err}
 	}()
+	waitForMuxState(t, mux, func() bool { return mux.dataCount == 1 && stream.outstanding == 3*4085 })
 	select {
 	case <-blocked:
 		t.Fatal("second Write() completed before Close")
-	case <-time.After(30 * time.Millisecond):
+	default:
 	}
 	if err := stream.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)

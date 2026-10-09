@@ -17,6 +17,7 @@ type LegacyStream struct {
 	// either removed unsent or converted into a bounded tombstone.
 	tombstoneReserved bool
 	remoteEOF         bool
+	readEOFObserved   bool
 	localClosed       bool
 
 	peerMax     uint32
@@ -63,7 +64,14 @@ func (s *LegacyStream) Read(payload []byte) (int, error) {
 		if s.localClosed {
 			return 0, ErrLegacyStreamClosed
 		}
+		if s.readEOFObserved {
+			return 0, io.EOF
+		}
+		if mux.closed {
+			return 0, mux.muxErrorLocked()
+		}
 		if s.state == legacyStreamTombstoned && s.remoteEOF {
+			s.readEOFObserved = true
 			return 0, io.EOF
 		}
 		if s.state == legacyStreamLocalClose || s.state == legacyStreamFullyClosed || s.state == legacyStreamTombstoned {
@@ -88,10 +96,8 @@ func (s *LegacyStream) Read(payload []byte) (int, error) {
 			if s.closeSent {
 				mux.removeStreamToTombstoneLocked(s)
 			}
+			s.readEOFObserved = true
 			return 0, io.EOF
-		}
-		if mux.closed {
-			return 0, mux.muxErrorLocked()
 		}
 		mux.cond.Wait()
 	}
@@ -152,13 +158,13 @@ func (s *LegacyStream) Write(payload []byte) (int, error) {
 func (s *LegacyStream) Close() error {
 	mux := s.mux
 	mux.mu.Lock()
-	if s.localClosed || s.state == legacyStreamLocalClose || s.state == legacyStreamFullyClosed {
+	if s.localClosed || s.state == legacyStreamLocalClose {
 		mux.mu.Unlock()
 		return nil
 	}
-	if s.state == legacyStreamTombstoned {
-		// The mux tombstone remains in place to handle late frames, while the
-		// caller-visible stream becomes explicitly closed.
+	if s.state == legacyStreamFullyClosed || s.state == legacyStreamTombstoned {
+		// Wire cleanup is complete or owned by mux shutdown. Only establish
+		// caller-visible local close; leave wire state and accounting unchanged.
 		s.localClosed = true
 		mux.cond.Broadcast()
 		mux.notifyLocked()

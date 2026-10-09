@@ -8,6 +8,43 @@ import (
 	"time"
 )
 
+func TestLegacyMuxOpenControlCapacityCancellationHasNoTombstone(t *testing.T) {
+	mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	// The unread initial ping occupies the raw writer, while the sole reader
+	// processes valid peer opens into the real bounded rejection queue.
+	waitForMuxState(t, mux, func() bool { return mux.pingCount == 1 && len(mux.pingQueue) == 0 })
+	for i := 0; i < 72; i++ {
+		writePeerFrame(t, peer, Frame{Flag: FrameFlagStreamOpen, StreamID: int32(1000 + i)})
+	}
+	waitForMuxState(t, mux, func() bool { return mux.openCount == 72 })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	runRobustnessWorker(t, mux, func() { _, err := mux.OpenStream(ctx); result <- err })
+	waitForMuxState(t, mux, func() bool {
+		for _, s := range mux.streams {
+			return s.open != nil && s.open.state == legacyOpenWaiting
+		}
+		return false
+	})
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal("capacity-blocked open lost cancellation")
+		}
+	case <-time.After(robustnessWait):
+		t.Fatal("capacity-blocked open did not stop")
+	}
+	mux.mu.Lock()
+	valid := len(mux.streams) == 0 && len(mux.tombstones) == 0 && mux.tombstoneReservations == 0 && mux.openCount == 72 && !mux.closed
+	mux.mu.Unlock()
+	if !valid {
+		t.Fatal("definitely-unsent canceled open leaked state or disturbed control capacity")
+	}
+	assertLegacyMuxQueueAccounting(t, mux)
+}
+
 func TestLegacyMuxCanceledInflightOpenProtectsTombstoneUntilRawWriteCompletes(t *testing.T) {
 	cfg := LegacyMuxConfig{
 		OpenTimeout:  time.Second,

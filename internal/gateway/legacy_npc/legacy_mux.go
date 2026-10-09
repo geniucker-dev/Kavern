@@ -1062,8 +1062,21 @@ func (m *LegacyMux) notifyLocked() {
 }
 
 func (m *LegacyMux) muxErrorLocked() error {
-	if m.terminalErr != nil {
-		return m.terminalErr
+	return legacyOperationError(m.terminalErr)
+}
+
+// Only stable sentinels cross the stream boundary. The private terminal cause
+// may contain network addresses and must never escape through Read or Write.
+func legacyOperationError(err error) error {
+	for _, safe := range []error{
+		ErrLegacyProtocol, ErrLegacyReceiveLimit, ErrLegacyPingTimeout,
+		ErrLegacyStreamClosed, ErrLegacyMuxClosed, ErrLegacyStreamRejected,
+		ErrLegacyStreamLimit, ErrLegacyTombstoneLimit, ErrLegacyIDExhausted,
+		context.Canceled, context.DeadlineExceeded,
+	} {
+		if errors.Is(err, safe) {
+			return safe
+		}
 	}
 	return ErrLegacyMuxClosed
 }
@@ -1078,7 +1091,7 @@ func (m *LegacyMux) shutdown(err error) {
 		m.terminalErr = err
 		for _, stream := range m.streams {
 			if stream.open != nil {
-				resolvePendingOpenLocked(stream.open, legacyOpenCanceled, err, false)
+				resolvePendingOpenLocked(stream.open, legacyOpenCanceled, legacyOperationError(err), false)
 				stream.open = nil
 			}
 			stream.state = legacyStreamFullyClosed

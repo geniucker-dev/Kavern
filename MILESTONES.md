@@ -182,15 +182,33 @@ Exit criteria:
 - A real pinned `NPC_BIN` duplicate-main replacement leaves the final current legacy session with a usable mux and successful Router echo.
 - Gateway/session integration and real stock NPC TCP echo are reviewed before robustness work begins.
 
-## Gate 6S-4: Robustness Review
+## Gate 6S-4A: Deterministic Robustness Review
 
 Scope:
 
-- Stream concurrency, close/reconnect/replacement, malformed frames, flow-control stall/recovery, race, and goroutine-leak testing.
+- Go-peer/net.Pipe tests for transport fragmentation, stream concurrency, close/replacement, malformed frames, flow-control stall/recovery, race, and explicit worker completion.
+- Only deterministic-regression-backed correctness fixes in legacy gateway, router, or session code. No real-binary matrix or production instrumentation.
 
 Exit criteria:
 
-- Robustness and bounded-resource behavior are reviewed before Gate 6S completion.
+- Pure segmentation and byte-stream reconstruction cover 0 through the listed 262144-byte Go-peer cases; the independent flow proof uses the unmodified initial allowance of 122550 bytes.
+- With 64 live Go-peer streams, the 65th open is locally rejected by MaxStreams without a wire 0x06; the first 64 remain usable.
+- Frame-count fairness, bounded resource ownership, device isolation, and explicit worker/lease cleanup pass normal and repeated race/shuffle validation.
+- Post-return legacy stream errors are sanitized while safe sentinels remain distinguishable. Stored target selection and metadata-only RemoteAddr remain unchanged.
+- Review the 4A diff, regressions, and validation output before starting 4B in a separate goal. The implementation is not self-approved by passing tests.
+
+## Gate 6S-4B: Real Pinned Compatibility Review (Not Started)
+
+Scope:
+
+- Separately implement the pinned NPC_BIN payload, sequential/concurrent stream, close, idle, main-replacement, and two-device matrices.
+- Keep canonical Router acceptance under tests/legacy_npc. The planned narrowly scoped build-tagged gateway companion tests may inspect private resource state; no normal-build inspection API is approved.
+
+Exit criteria:
+
+- Real pinned v0.26.34 evidence, not Go-peer simulations, establishes the tested TCP compatibility limits.
+- Record full results, binary provenance, flow-credit evidence, cleanup, stored-target safety, and unsupported close semantics.
+- No TCP half-close, arbitrary NPS compatibility, throughput, or indefinite-soak claim. No NPS_BIN or upstream implementation material.
 
 Every Gate 6S subphase requires a separate review. No later Gate 6S subphase may begin before the immediately preceding subphase passes review.
 

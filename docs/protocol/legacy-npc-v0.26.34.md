@@ -72,12 +72,16 @@ Both mux peers independently send `0x00` ping content frames using stream ID `-1
 
 On receiving `0x00`, a peer must immediately send `0x08` with stream ID `-1` and the exact same body. Both directions may ping concurrently, and stream opening does not wait for bilateral ping completion.
 
-Pinned v0.26.34 behavior sends an initial ping and repeats approximately every five seconds. Ping scheduling is documented here only and is not implemented in Gate 6S-1.
+Pinned v0.26.34 behavior sends an initial ping and repeats approximately every five seconds. Kavern's reviewed mux implements this independently; its liveness interval starts after the complete local ping is transmitted, not when queued.
 
-## Future Mux Constraints
+## Implemented Mux Constraints and Deterministic Review
 
-Phase 6S-2 will implement these semantics; this document does not add a mux implementation.
+Gate 6S-2 implements the mux and Gate 6S-3 integrates it into device-scoped runtime ownership. Gate 6S-4A tests these constraints using Go peers only; it does not establish the future 6S-4B real-binary robustness matrix.
 
 - `0x07` is a logical-stream close signal, not a TCP half-close. Receiving it enters closing state, rejects new local writes, wakes blocked writers, drains queued inbound bytes before EOF, and permits at most one local `0x07` cleanup response. Duplicate closes are ignored.
-- The mux will bound per-stream and aggregate resources using `MaxStreams`, `MaxBufferedBytesTotal`, and `MaxQueuedFramesTotal`. It must reserve global and per-stream capacity before accepting data/metadata and release both budgets on application reads, stream closure/removal, and mux shutdown.
-- Future flow control, ping scheduling, stream lifecycle, and data forwarding are outside Gate 6S-1.
+- The mux bounds per-stream and aggregate resources using `MaxStreams`, `MaxBufferedBytesTotal`, and `MaxQueuedFramesTotal`. It reserves global and per-stream capacity before buffering data, and releases ownership on reads, local close/removal, and shutdown. Remote close preserves already buffered bytes until drained or locally discarded.
+- Initial peer allowance is 122550. Sending admits a segment only if both queue capacity and outstanding-byte allowance are available; a valid 0x05 reduces outstanding by consumed delta and updates peer max. The wait bit does not control admission. Generated receive credit advertises the fixed local max, with wait and reserved bits clear; receipt of 0x05 does not itself require a response.
+- Default local soft/hard receive limits are 122550/126635 bytes. Retained nonempty receive blocks are bounded by ceil(buffered/4085)+1, and an empty queue retains no block slice. The codec may still allocate temporary bounded content bodies.
+- Default frame accounting includes queued and in-flight frames: ping/pong cap 16, open/reject cap 72, window cap 64, total control reserve/cap 160, data/close cap 1888, overall cap 2048. The class caps sum to 152; the unused control reserve is not available to data.
+- Local close discards unread bytes and orders one cleanup 0x07 after accepted data. Remote close rejects new writes and drains inbound bytes before EOF. Unknown positive closes are ignored without allocation; valid late data for closed/tombstoned streams is discarded locally. Data for a never-existing stream and duplicate accept/reject outside pending/tombstoned state are protocol failures.
+- The content limit remains fixed at 4085. Deterministic segmentation tests above the initial allowance explicitly advertise a larger valid peer max; a different test proves stall/recovery through 262144 bytes with the original initial allowance. Neither test is a real-NPC payload acceptance claim.

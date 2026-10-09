@@ -52,6 +52,18 @@ all reject a canceled lifecycle.
 
 ## Consequences
 
+Gate 6S-4 is split into independently reviewed phases. Gate 6S-4A tests the
+existing implementation with deterministic Go peers and permits only
+regression-backed correctness fixes. Gate 6S-4B remains plan-only until that
+review passes; real binary acceptance remains the compatibility oracle.
+
+Mux transport failures must be normalized at the mux/stream boundary, including
+after streams have been returned to Router. Safe protocol/resource/context
+sentinels remain distinguishable; raw network addresses are not returned.
+This does not change the shared proxy's half-close behavior or add a legacy
+half-close capability. Resource tests measure explicit ownership and completion,
+not heap-size or goroutine-count heuristics.
+
 - Compatibility remains limited to server-configured TCP tunnels.
 - No upstream package enters Kavern's import graph.
 - Real pinned-binary integration remains the acceptance oracle.

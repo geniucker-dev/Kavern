@@ -143,11 +143,12 @@ After Gate 0 and after every implementation gate, generated files, diffs, and te
 
 ### Gate 6S Sequencing
 
-- Gate 6S-1 and Gate 6S-2 have passed review. Gate 6S-3 session/gateway integration and real pinned `NPC_BIN` TCP echo are the current approved scope.
+- Gate 6S-1, Gate 6S-2, and Gate 6S-3 have passed review. Gate 6S-4A deterministic Go-peer robustness and regression-backed correctness fixes are the current approved scope.
 - Gate 6S-3 legacy ownership is device-scoped: legacy main generations and the current legacy mux are independent runtime fields. Replacing a legacy main does not inherently close the device's current mux; replacing a chan closes only the old mux.
 - Authenticated legacy main transitions register device-runtime interest before serialization. A chan remains retained while any live current/attached legacy main or pending main transition exists; state notifications are wakeups, not readiness truth.
 - Legacy main runtime leases and pending-transition interest are acquired atomically. Each authenticated main starts one lifecycle-bound connection monitor before transition serialization; no later code may read that main connection concurrently.
-- Gate 6S-4 robustness work is not approved in the current goal.
+- Gate 6S-4A uses Go peers and net.Pipe only, without NPC_BIN or NPS_BIN. Its implementation and validation must stop for review before Gate 6S-4B begins.
+- Gate 6S-4B real pinned-NPC payload/concurrency/lifecycle acceptance remains plan-only. Do not create real robustness matrices, tagged inspection helpers, or companion real-binary tests in the Gate 6S-4A goal. Deterministic payload and concurrency results are not real-NPC compatibility claims.
 - Each Gate 6S subphase requires its own review; no later Gate 6S subphase may begin before the prior subphase passes review.
 
 ## Validation Expectations

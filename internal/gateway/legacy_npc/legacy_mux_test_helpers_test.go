@@ -20,6 +20,33 @@ type deadlineObservedConn struct {
 	clearStarted chan struct{}
 }
 
+// Raw progress covers writer-claim transitions that deliberately do not expose
+// production instrumentation. Snapshot this signal before inspecting mux state.
+type muxProgressConn struct {
+	net.Conn
+	mu      sync.Mutex
+	changed chan struct{}
+}
+
+func observeMuxProgress(conn net.Conn) *muxProgressConn {
+	return &muxProgressConn{Conn: conn, changed: make(chan struct{})}
+}
+
+func (c *muxProgressConn) progressChanged() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.changed
+}
+
+func (c *muxProgressConn) SetWriteDeadline(deadline time.Time) error {
+	err := c.Conn.SetWriteDeadline(deadline)
+	c.mu.Lock()
+	close(c.changed)
+	c.changed = make(chan struct{})
+	c.mu.Unlock()
+	return err
+}
+
 func (c *deadlineObservedConn) SetWriteDeadline(deadline time.Time) error {
 	select {
 	case c.deadlines <- deadline:
@@ -58,7 +85,7 @@ func (c *deadlineObservedConn) blockNextDeadlineClear(gate <-chan struct{}, star
 func newLegacyMuxPipe(t *testing.T, cfg LegacyMuxConfig) (*LegacyMux, net.Conn) {
 	t.Helper()
 	server, peer := net.Pipe()
-	mux, err := NewLegacyMux(server, cfg)
+	mux, err := NewLegacyMux(observeMuxProgress(server), cfg)
 	if err != nil {
 		_ = peer.Close()
 		t.Fatalf("NewLegacyMux() error = %v", err)
@@ -74,7 +101,7 @@ func newDeadlineObservedMuxPipe(t *testing.T, cfg LegacyMuxConfig) (*LegacyMux, 
 	t.Helper()
 	server, peer := net.Pipe()
 	observed := &deadlineObservedConn{Conn: server, deadlines: make(chan time.Time, 16)}
-	mux, err := NewLegacyMux(observed, cfg)
+	mux, err := NewLegacyMux(observeMuxProgress(observed), cfg)
 	if err != nil {
 		_ = server.Close()
 		_ = peer.Close()

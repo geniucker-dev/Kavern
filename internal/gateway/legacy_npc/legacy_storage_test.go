@@ -4,10 +4,166 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
 )
+
+func TestLegacyStreamReceiveReassemblyMatrix(t *testing.T) {
+	for _, size := range []int{0, 1, 5, 19, 257, 4084, 4085, 4086, 8192, 65536, 122549, 122550, 122551, 131072, 262144} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			mux, remote := newLegacyMuxPipe(t, LegacyMuxConfig{})
+			peer := newRobustnessPeer(t, remote, false, false)
+			stream := openRobustnessStream(t, mux)
+			want := deterministicPayload(size, size)
+			var got []byte
+			for offset := 0; offset < len(want); {
+				end := offset + 8192
+				if end > len(want) {
+					end = len(want)
+				}
+				var batch bytes.Buffer
+				for pos := offset; pos < end; {
+					stop := pos + 4085
+					if stop > end {
+						stop = end
+					}
+					flag := FrameFlagDataContinue
+					if stop == len(want) {
+						flag = FrameFlagDataFinal
+					}
+					if err := WriteFrame(&batch, Frame{Flag: flag, StreamID: stream.id, Content: want[pos:stop]}); err != nil {
+						t.Fatal(err)
+					}
+					pos = stop
+				}
+				peer.sendCommand(t, peerWrite{raw: batch.Bytes()})
+				waitForMuxState(t, mux, func() bool { return stream.recvBuffered == uint64(end-offset) })
+				remaining := end - offset
+				for step := 0; remaining > 0; step++ {
+					n := []int{1, 5, 4090, 257}[step%4]
+					if n > remaining {
+						n = remaining
+					}
+					buffer := make([]byte, n)
+					read, err := stream.Read(buffer)
+					if err != nil || read != n {
+						t.Fatal("partial application read did not reconstruct buffered stream")
+					}
+					got = append(got, buffer...)
+					remaining -= read
+					assertReceiveOwnershipBound(t, mux, stream)
+				}
+				offset = end
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatal("partial reads lost or duplicated bytes")
+			}
+			waitForMuxState(t, mux, func() bool {
+				return mux.windowCount == 0 && stream.pendingConsumed == 0 && stream.inFlightConsumed == 0
+			})
+			frames := peer.wait(t, func(frames []Frame) bool {
+				var credit uint64
+				for _, f := range frames {
+					if f.Flag == FrameFlagWindow && f.StreamID == stream.id {
+						credit += f.WindowState & legacyWindowDeltaMask
+					}
+				}
+				return credit >= uint64(size)
+			})
+			var credit uint64
+			for _, f := range frames {
+				if f.Flag == FrameFlagWindow && f.StreamID == stream.id {
+					if f.WindowState>>32 != uint64(defaultLegacyMuxWindow) || f.WindowState&(1<<31) != 0 {
+						t.Fatal("generated window has invalid max or reserved/wait bits")
+					}
+					credit += f.WindowState & legacyWindowDeltaMask
+				}
+			}
+			if credit != uint64(size) {
+				t.Fatal("application consumed credit was lost or duplicated")
+			}
+			assertStreamReceiveReleased(t, mux, stream)
+			_ = stream.Close()
+		})
+	}
+}
+
+func TestLegacyStreamTinyWireFramesRespectReceiveBlockLimit(t *testing.T) {
+	mux, remote := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	peer := newRobustnessPeer(t, remote, false, false)
+	stream := openRobustnessStream(t, mux)
+	var wire bytes.Buffer
+	want := deterministicPayload(3000, 99)
+	for _, value := range want {
+		if err := WriteFrame(&wire, Frame{Flag: FrameFlagDataFinal, StreamID: stream.id, Content: []byte{value}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	peer.sendCommand(t, peerWrite{raw: wire.Bytes()})
+	waitForMuxState(t, mux, func() bool { return stream.recvBuffered == 3000 })
+	assertReceiveBlockCount(t, mux, stream, 1)
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(stream, got); err != nil || !bytes.Equal(got, want) {
+		t.Fatal("tiny wire frames corrupted the byte stream")
+	}
+	assertReceiveOwnershipBound(t, mux, stream)
+}
+
+func TestLegacyStreamSequentialHighWaterReceiveLimitReleasesReferences(t *testing.T) {
+	mux, remote := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	peer := newRobustnessPeer(t, remote, false, false)
+	for iteration := 0; iteration < 16; iteration++ {
+		stream := openRobustnessStream(t, mux)
+		for segment := 0; segment < 31; segment++ {
+			peer.send(t, Frame{Flag: FrameFlagDataFinal, StreamID: stream.id, Content: deterministicPayload(4085, segment)})
+		}
+		waitForMuxState(t, mux, func() bool { return stream.recvBuffered == uint64(mux.cfg.HardReceiveBufferBytes) })
+		assertReceiveOwnershipBound(t, mux, stream)
+		if err := stream.Close(); err != nil {
+			t.Fatal(err)
+		}
+		waitForMuxState(t, mux, func() bool {
+			return len(mux.streams) == 0 && mux.dataCount == 0 && mux.bufferedBytes == 0 && mux.tombstoneReservations == 0
+		})
+		assertStreamReceiveReleased(t, mux, stream)
+		mux.mu.Lock()
+		retained := stream.dataQueue != nil
+		mux.mu.Unlock()
+		if retained {
+			t.Fatal("high-water stream retained outbound storage")
+		}
+	}
+	_ = mux.Close()
+	assertLegacyMuxShutdownCleared(t, mux)
+}
+
+func assertReceiveOwnershipBound(t *testing.T, mux *LegacyMux, stream *LegacyStream) {
+	t.Helper()
+	mux.mu.Lock()
+	defer mux.mu.Unlock()
+	if stream.recvBuffered == 0 {
+		if stream.recvBlocks != nil {
+			t.Fatal("empty receive queue retained backing storage")
+		}
+		return
+	}
+	limit := (stream.recvBuffered+4084)/4085 + 1
+	if uint64(len(stream.recvBlocks)) > limit {
+		t.Fatal("tiny frames grew receive-block ownership beyond its bound")
+	}
+	var buffered uint64
+	for _, block := range stream.recvBlocks {
+		if len(block.data) != 4085 || block.readOffset < 0 || block.writeOffset < block.readOffset || block.writeOffset > len(block.data) {
+			t.Fatal("invalid receive block")
+		}
+		buffered += uint64(block.writeOffset - block.readOffset)
+	}
+	if buffered != stream.recvBuffered {
+		t.Fatal("receive byte counter disagrees with owned blocks")
+	}
+}
 
 func TestLegacyStreamRemoteCloseThenLocalCloseLifecycle(t *testing.T) {
 	t.Run("cleanup is not duplicated before transmission", func(t *testing.T) {

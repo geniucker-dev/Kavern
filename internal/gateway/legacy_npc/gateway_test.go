@@ -3,6 +3,7 @@ package legacy_npc
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/parser"
@@ -11,6 +12,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1139,13 +1141,37 @@ func TestProductionDoesNotImportForbiddenNPSPackages(t *testing.T) {
 	root := repositoryRoot(t)
 	forbidden := []string{"ehang.io/nps", "github.com/yisier/nps", "github.com/yisier/nps-mux"}
 
-	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	// Ask the Go tool to parse module directives rather than matching comments
+	// or string literals. This command is read-only and performs no downloads.
+	goMod, err := exec.Command("go", "mod", "edit", "-json", filepath.Join(root, "go.mod")).Output()
 	if err != nil {
 		t.Fatalf("read go.mod: %v", err)
 	}
-	for _, module := range forbidden {
-		if strings.Contains(string(goMod), module) {
-			t.Fatalf("go.mod references forbidden nps module %q", module)
+	var modules struct {
+		Module  *struct{ Path string }
+		Require []struct{ Path string }
+		Exclude []struct{ Path string }
+		Replace []struct{ Old, New struct{ Path string } }
+	}
+	if err := json.Unmarshal(goMod, &modules); err != nil {
+		t.Fatal("decode go.mod directives:", err)
+	}
+	var paths []string
+	if modules.Module != nil {
+		paths = append(paths, modules.Module.Path)
+	}
+	for _, m := range modules.Require {
+		paths = append(paths, m.Path)
+	}
+	for _, m := range modules.Exclude {
+		paths = append(paths, m.Path)
+	}
+	for _, m := range modules.Replace {
+		paths = append(paths, m.Old.Path, m.New.Path)
+	}
+	for _, path := range paths {
+		if forbiddenNPSPath(path, forbidden) {
+			t.Fatal("go.mod contains a forbidden NPS module reference")
 		}
 	}
 
@@ -1159,32 +1185,59 @@ func TestProductionDoesNotImportForbiddenNPSPackages(t *testing.T) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		src, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, src, parser.ImportsOnly)
-		if err != nil {
-			return err
-		}
-		for _, imp := range parsed.Imports {
-			pathValue, err := strconv.Unquote(imp.Path.Value)
-			if err != nil {
-				return err
-			}
-			for _, module := range forbidden {
-				if pathValue == module || strings.HasPrefix(pathValue, module+"/") {
-					return fmt.Errorf("%s imports forbidden nps module %q", path, pathValue)
-				}
-			}
-		}
-		return nil
+		return checkNPSImports(path, src, forbidden)
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func forbiddenNPSPath(path string, forbidden []string) bool {
+	for _, module := range forbidden {
+		if path == module || strings.HasPrefix(path, module+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func checkNPSImports(path string, src []byte, forbidden []string) error {
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, src, parser.ImportsOnly)
+	if err != nil {
+		return err
+	}
+	for _, imp := range parsed.Imports {
+		pathValue, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			return err
+		}
+		if forbiddenNPSPath(pathValue, forbidden) {
+			return fmt.Errorf("%s imports a forbidden NPS package", path)
+		}
+	}
+	return nil
+}
+
+func TestForbiddenImportGuardUsesOnlyImportDeclarations(t *testing.T) {
+	forbidden := []string{"ehang.io/nps", "github.com/yisier/nps", "github.com/yisier/nps-mux"}
+	benign := "//go:build example\n\npackage sample\n// github.com/yisier/nps\nconst message = \"ehang.io/nps\"\n"
+	if err := checkNPSImports("sample_test.go", []byte(benign), forbidden); err != nil {
+		t.Fatal("guard matched non-import source text")
+	}
+	for _, path := range forbidden {
+		for _, file := range []string{"sample.go", "sample_test.go"} {
+			source := "//go:build example\n\npackage sample\nimport _ " + strconv.Quote(path+"/subpkg") + "\n"
+			if err := checkNPSImports(file, []byte(source), forbidden); err == nil {
+				t.Fatal("guard accepted an actual forbidden import")
+			}
+		}
 	}
 }
 

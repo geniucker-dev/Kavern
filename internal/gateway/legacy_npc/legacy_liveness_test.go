@@ -8,6 +8,69 @@ import (
 	"time"
 )
 
+func TestLegacyMuxPingSimultaneousOpaqueBodiesAndOpen(t *testing.T) {
+	mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	for _, body := range [][]byte{bytes.Repeat([]byte{'a'}, 29), bytes.Repeat([]byte{'b'}, 30)} {
+		writePeerFrame(t, peer, Frame{Flag: FrameFlagPing, StreamID: -1, Content: body})
+	}
+	// Peer pings have been received without completing the local ping.
+	seen := make(map[int]int)
+	localPing := false
+	for !localPing || seen[29] != 1 || seen[30] != 1 {
+		frame := readPeerFrame(t, peer)
+		switch frame.Flag {
+		case FrameFlagPing:
+			localPing = true
+			writePeerFrame(t, peer, Frame{Flag: FrameFlagPingResponse, StreamID: -1, Content: frame.Content})
+		case FrameFlagPingResponse:
+			if len(frame.Content) != 29 && len(frame.Content) != 30 {
+				t.Fatal("opaque response length changed")
+			}
+			value := byte('a')
+			if len(frame.Content) == 30 {
+				value = 'b'
+			}
+			if !bytes.Equal(frame.Content, bytes.Repeat([]byte{value}, len(frame.Content))) {
+				t.Fatal("opaque ping body changed")
+			}
+			seen[len(frame.Content)]++
+		default:
+			t.Fatal("unexpected control during simultaneous ping")
+		}
+	}
+	if stream := openPeerStream(t, mux, peer); stream == nil {
+		t.Fatal("ping exchange prevented stream opening")
+	}
+}
+
+func TestLegacyMuxPingExpiryUsesSentTimeAndExactPong(t *testing.T) {
+	mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	frame := readPeerFrame(t, peer)
+	waitForMuxState(t, mux, func() bool { return len(mux.outstandingPings) == 1 })
+	mux.mu.Lock()
+	sent := mux.outstandingPings[string(frame.Content)]
+	mux.mu.Unlock()
+	if mux.pingExpired(sent.Add(mux.cfg.PingTimeout - time.Nanosecond)) {
+		t.Fatal("ping expired before its transmission-based deadline")
+	}
+	if !mux.pingExpired(sent.Add(mux.cfg.PingTimeout)) {
+		t.Fatal("transmitted unanswered ping did not expire")
+	}
+	writePeerFrame(t, peer, Frame{Flag: FrameFlagPingResponse, StreamID: -1, Content: []byte("unmatched")})
+	writePeerFrame(t, peer, Frame{Flag: FrameFlagPing, StreamID: -1, Content: []byte("barrier")})
+	if reply := readPeerFrame(t, peer); reply.Flag != FrameFlagPingResponse {
+		t.Fatal("ping barrier was not processed")
+	}
+	if !mux.pingExpired(sent.Add(mux.cfg.PingTimeout)) {
+		t.Fatal("unmatched pong refreshed liveness")
+	}
+	writePeerFrame(t, peer, Frame{Flag: FrameFlagPingResponse, StreamID: -1, Content: frame.Content})
+	waitForMuxState(t, mux, func() bool { return len(mux.outstandingPings) == 0 })
+	if mux.pingExpired(sent.Add(2 * mux.cfg.PingTimeout)) {
+		t.Fatal("exact pong did not clear liveness")
+	}
+}
+
 func TestLegacyMuxRawWriteDeadlineBoundsInitialPing(t *testing.T) {
 	cfg := LegacyMuxConfig{PingInterval: 25 * time.Millisecond, PingTimeout: 50 * time.Millisecond}
 	mux, peer, observed := newDeadlineObservedMuxPipe(t, cfg)

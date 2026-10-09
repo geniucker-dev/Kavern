@@ -445,6 +445,41 @@ HTTP tunnel support is a placeholder. The data model may reserve tunnel protocol
 
 ## Real npc Integration Test Plan
 
+### Deterministic Robustness Boundary
+
+Gate 6S-4A is a separate Go-peer/net.Pipe review, not real stock-npc robustness
+acceptance. Its segmentation and reconstruction matrix is 0, 1, 5, 19, 257,
+4084, 4085, 4086, 8192, 65536, 122549, 122550, 122551, 131072, and 262144
+bytes. Pure segmentation advertises a larger valid peer window with zero
+consumed delta. The independent flow test starts at 122550, proves admission
+stalls exactly there, and resumes only after valid consumed credit.
+
+The Go-peer concurrency matrix is 1, 2, 8, 32, and 64. The 65th open with 64
+live streams is locally rejected by MaxStreams: no 0x06 or manufactured peer
+rejection is involved. These numbers are deterministic test coverage, not new
+configured stream-size ceilings or proven real-NPC concurrency limits.
+
+Legacy mux/stream operations return only stable sanitized errors; raw transport
+causes cannot escape after OpenStream returns. Protocol/resource/context errors
+remain distinguishable. Once Read returns normal EOF after remote close and
+buffer drain, subsequent reads remain EOF even after mux failure, unless an
+explicit local Close occurs. Before EOF is observed, mux failure remains
+visible through its sanitized sentinel.
+
+Router rejects nil inbound with ErrInvalidInboundConnection after disabled
+tunnel, device lookup / disabled device, and current-session checks, but before
+OpenStream. Invalid inbound therefore cannot create a logical stream or cause
+the legacy client to dial the stored target.
+Receive memory assertions concern retained fixed blocks and owned references,
+not exact heap bytes or zero temporary allocations in the frame codec.
+
+Gate 6S-4B remains separately reviewed and unimplemented. Its planned real
+payload, sequential/concurrent, lifecycle, and idle tests do not constitute
+accepted compatibility results until actually executed against pinned NPC_BIN.
+No independent TCP half-close compatibility is claimed.
+
+### Real Binary Contract
+
 Legacy integration tests must follow this contract:
 
 - Normal `go test ./...` must not require internet or `NPC_BIN`.

@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	ErrDisabledTunnel = errors.New("disabled tunnel")
-	ErrDisabledDevice = errors.New("disabled device")
+	ErrDisabledTunnel           = errors.New("disabled tunnel")
+	ErrDisabledDevice           = errors.New("disabled device")
+	ErrInvalidInboundConnection = errors.New("invalid inbound connection")
 )
 
 type TunnelStore interface {
@@ -65,6 +66,9 @@ func (r *Router) RouteTCP(ctx context.Context, tunnel domain.Tunnel, inbound net
 	current, err := r.sessions.CurrentForDevice(ctx, tunnel.DeviceID)
 	if err != nil {
 		return err
+	}
+	if inbound == nil {
+		return ErrInvalidInboundConnection
 	}
 	remoteAddr := ""
 	if inbound != nil && inbound.RemoteAddr() != nil {

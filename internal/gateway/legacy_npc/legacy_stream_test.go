@@ -86,10 +86,11 @@ func TestLegacyStreamFlowControlRecovery(t *testing.T) {
 			t.Fatalf("frame %d = %#v", index, frame)
 		}
 	}
+	waitForMuxState(t, mux, func() bool { return stream.outstanding == uint64(defaultLegacyMuxWindow) && mux.dataCount == 0 })
 	select {
-	case got := <-result:
-		t.Fatalf("Write() completed before window update: %+v", got)
-	case <-time.After(30 * time.Millisecond):
+	case <-result:
+		t.Fatal("Write completed before window update")
+	default:
 	}
 	writePeerFrame(t, peer, Frame{Flag: FrameFlagWindow, StreamID: stream.id, WindowState: packWindowState(defaultLegacyMuxWindow, uint64(defaultLegacyMuxWindow))})
 	got := <-result
@@ -115,6 +116,78 @@ func TestLegacyMuxRejectsImpossibleWindowState(t *testing.T) {
 		stream := openPeerStream(t, mux, peer)
 		writePeerFrame(t, peer, Frame{Flag: FrameFlagWindow, StreamID: stream.id, WindowState: state})
 		waitMuxDone(t, mux)
+		if _, err := mux.OpenStream(context.Background()); !errors.Is(err, ErrLegacyProtocol) {
+			t.Fatal("malformed window did not produce protocol sentinel")
+		}
+	}
+}
+
+func TestLegacyStreamWindowWaitBitDoesNotBlockAdmission(t *testing.T) {
+	mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	acknowledgeInitialPing(t, peer)
+	stream := openPeerStream(t, mux, peer)
+	writePeerFrame(t, peer, Frame{Flag: FrameFlagWindow, StreamID: stream.id, WindowState: uint64(1)<<63 | packWindowState(19, 0)})
+	waitForMuxState(t, mux, func() bool { return stream.peerMax == 19 })
+	if n, err := stream.Write(make([]byte, 19)); n != 19 || err != nil {
+		t.Fatal("peer wait bit blocked valid credit")
+	}
+	if f := readPeerFrame(t, peer); f.Flag != FrameFlagDataFinal || len(f.Content) != 19 {
+		t.Fatal("valid wait-bit update caused an active response or incorrect data")
+	}
+}
+
+func TestLegacyStreamWindowRepeatedReadsCoalesceOneInflightSlot(t *testing.T) {
+	mux, peer := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	acknowledgeInitialPing(t, peer)
+	stream := openPeerStream(t, mux, peer)
+	writePeerFrame(t, peer, Frame{Flag: FrameFlagDataFinal, StreamID: stream.id, Content: make([]byte, 3000)})
+	if _, err := stream.Read(make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	waitForMuxState(t, mux, func() bool { return stream.windowInFlight })
+	for i := 1; i < 3000; i++ {
+		if _, err := stream.Read(make([]byte, 1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mux.mu.Lock()
+	valid := stream.inFlightConsumed == 1 && stream.pendingConsumed == 2999 && mux.windowCount == 1 && stream.recvBlocks == nil
+	mux.mu.Unlock()
+	if !valid {
+		t.Fatal("reads mutated in-flight credit or reserved extra descriptors")
+	}
+	for _, delta := range []uint64{1, 2999} {
+		f := readPeerFrame(t, peer)
+		if f.Flag != FrameFlagWindow || f.WindowState != packWindowState(122550, delta) {
+			t.Fatal("coalesced credit was duplicated, lost, or incorrectly packed")
+		}
+	}
+	waitForMuxState(t, mux, func() bool {
+		return mux.windowCount == 0 && stream.pendingConsumed == 0 && stream.inFlightConsumed == 0
+	})
+}
+
+func TestLegacyStreamRemoteCloseWakesFlowBlockedWriter(t *testing.T) {
+	mux, remote := newLegacyMuxPipe(t, LegacyMuxConfig{})
+	peer := newRobustnessPeer(t, remote, false, false)
+	stream := openRobustnessStream(t, mux)
+	result := make(chan error, 1)
+	runRobustnessWorker(t, mux, func() { _, err := stream.Write(make([]byte, 262144)); result <- err })
+	waitForMuxState(t, mux, func() bool { return stream.outstanding == 122550 })
+	peer.send(t, Frame{Flag: FrameFlagStreamClose, StreamID: stream.id})
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrLegacyStreamClosed) {
+			t.Fatal("remote close did not interrupt writer")
+		}
+	case <-time.After(robustnessWait):
+		t.Fatal("remote close left writer blocked")
+	}
+	if _, err := stream.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatal("drained remote-close read was not EOF")
+	}
+	if _, err := stream.Write([]byte("x")); !errors.Is(err, ErrLegacyStreamClosed) {
+		t.Fatal("remote close allowed new writes")
 	}
 }
 
@@ -526,15 +599,29 @@ func TestLegacyStreamCloseDoesNotReinstallStateAfterMuxShutdown(t *testing.T) {
 
 func waitForMuxState(t *testing.T, mux *LegacyMux, predicate func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		var progress <-chan struct{}
+		if observed, ok := mux.conn.(interface{ progressChanged() <-chan struct{} }); ok {
+			progress = observed.progressChanged()
+		}
 		mux.mu.Lock()
 		ready := predicate()
+		notify := mux.stateNotify
+		closed := mux.closed
 		mux.mu.Unlock()
 		if ready {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		if closed {
+			t.Fatal("mux closed before expected state")
+		}
+		select {
+		case <-notify:
+		case <-progress:
+		case <-timer.C:
+			t.Fatal("timed out waiting for mux state")
+		}
 	}
-	t.Fatal("timed out waiting for mux state")
 }
