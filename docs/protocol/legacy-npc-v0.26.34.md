@@ -85,3 +85,22 @@ Gate 6S-2 implements the mux and Gate 6S-3 integrates it into device-scoped runt
 - Default frame accounting includes queued and in-flight frames: ping/pong cap 16, open/reject cap 72, window cap 64, total control reserve/cap 160, data/close cap 1888, overall cap 2048. The class caps sum to 152; the unused control reserve is not available to data.
 - Local close discards unread bytes and orders one cleanup 0x07 after accepted data. Remote close rejects new writes and drains inbound bytes before EOF. Unknown positive closes are ignored without allocation; valid late data for closed/tombstoned streams is discarded locally. Data for a never-existing stream and duplicate accept/reject outside pending/tombstoned state are protocol failures.
 - The content limit remains fixed at 4085. Deterministic segmentation tests above the initial allowance explicitly advertise a larger valid peer max; a different test proves stall/recovery through 262144 bytes with the original initial allowance. Neither test is a real-NPC payload acceptance claim.
+
+## Gate 6S-4B Real TCP Evidence (Review Pending)
+
+The separately approved real-binary matrix executes the reviewed pinned Linux
+amd64 v0.26.34 NPC through the public Router. It covers byte equality through
+262144 bytes, 129 sequential streams, concurrent 2/8/16 live streams, process
+restart/main replacement, bounded close cleanup, idle recovery and two-device
+isolation. Same-package tagged _test.go companions inspect mux generations,
+worker/lease ownership and actual 0x05 credit; no inspection API exists in
+production. See docs/TESTING.md for hashes, repeat counts and measured limits.
+
+The server's receive max and initial allowance stay 122550; real NPC credit
+updates permit larger transfers without a test-only enlarged window. An
+observed NPC advertised max of 191484 is peer behavior, not a configured
+Kavern receive limit. Real half-close probes do not prove propagation of
+public CloseWrite into target write-half EOF; public-close worker completion
+is tested with explicit route cancellation. No independent TCP half-close,
+chan-only reconnect, other-version/platform, throughput or indefinite-soak
+claim follows from these tests. Passing tests still require independent review.

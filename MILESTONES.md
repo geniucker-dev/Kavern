@@ -184,6 +184,8 @@ Exit criteria:
 
 ## Gate 6S-4A: Deterministic Robustness Review
 
+Status: independently reviewed and accepted on 2026-10-09; local commit e69c133.
+
 Scope:
 
 - Go-peer/net.Pipe tests for transport fragmentation, stream concurrency, close/replacement, malformed frames, flow-control stall/recovery, race, and explicit worker completion.
@@ -197,12 +199,12 @@ Exit criteria:
 - Post-return legacy stream errors are sanitized while safe sentinels remain distinguishable. Stored target selection and metadata-only RemoteAddr remain unchanged.
 - Review the 4A diff, regressions, and validation output before starting 4B in a separate goal. The implementation is not self-approved by passing tests.
 
-## Gate 6S-4B: Real Pinned Compatibility Review (Not Started)
+## Gate 6S-4B: Real Pinned Compatibility Review (Implementation / Review Pending)
 
 Scope:
 
 - Separately implement the pinned NPC_BIN payload, sequential/concurrent stream, close, idle, main-replacement, and two-device matrices.
-- Keep canonical Router acceptance under tests/legacy_npc. The planned narrowly scoped build-tagged gateway companion tests may inspect private resource state; no normal-build inspection API is approved.
+- Keep canonical Router acceptance under tests/legacy_npc. Private resource checks live only in same-package legacy_npc_integration *_test.go companions; no production or tagged non-test inspection API is approved.
 
 Exit criteria:
 

@@ -473,10 +473,15 @@ the legacy client to dial the stored target.
 Receive memory assertions concern retained fixed blocks and owned references,
 not exact heap bytes or zero temporary allocations in the frame codec.
 
-Gate 6S-4B remains separately reviewed and unimplemented. Its planned real
-payload, sequential/concurrent, lifecycle, and idle tests do not constitute
-accepted compatibility results until actually executed against pinned NPC_BIN.
-No independent TCP half-close compatibility is claimed.
+Gate 6S-4A passed independent review on 2026-10-09. Gate 6S-4B implements
+separately scoped real pinned v0.26.34 TCP payloads through 262144 bytes,
+129 sequential streams, concurrent 2/8/16 live streams, process/main
+replacement, idle recovery, and two-device isolation. See docs/TESTING.md
+for invocation, provenance, bounded cleanup, measured limitations, and review
+status. Tests and successful runs do not self-approve this gate.
+No independent TCP half-close compatibility is claimed. Public-close cleanup
+acceptance explicitly cancels the route; automatic propagation of client EOF
+to the target is not proved by that test.
 
 ### Real Binary Contract
 

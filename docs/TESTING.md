@@ -279,15 +279,92 @@ The 4A review packet must retain failures as well as final successful runs,
 shuffle seeds, count/race results, ownership assertions, and the scoped diff.
 Passing Go-peer tests is not self-approval to implement 4B.
 
-### Gate 6S-4B: Plan Only
+### Gate 6S-4B: Real Pinned TCP Robustness (Review Pending)
 
-No new real-binary robustness or tagged inspection helper belongs in 4A.
-After a separate review, 4B may implement canonical Router matrices under
-tests/legacy_npc and narrowly scoped tagged gateway-package companion tests
-for private counters. Normal builds must remain NPC_BIN-free. Real 262144-byte
-transfers, 129 sequential streams, concurrency through 16, and close-path
-results are not claimed by 4A and require separate pinned-NPC evidence.
-The source-informed independent implementation and commercial GPL/compliance
-review boundary remain unchanged; no independent TCP half-close is claimed.
+4A passed independent review on 2026-10-09 (local commit e69c133). 4B has
+separate real-binary tests; passing them is evidence for review, not self-approval
+or completion of the operational MVP.
+
+The reviewed Linux amd64 NPC executable has SHA-256
+`13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7`.
+It is byte-for-byte the npc member of linux_amd64_client.tar.gz, whose SHA-256
+`a2a3ba1caaf304e2015dca2efb65d26fa9483502899c74c6f17b9931cfd0fa42`
+matches the official pinned v0.26.34 release asset listing:
+https://github.com/yisier/nps/releases/expanded_assets/v0.26.34 .
+The new 4B tests require this reviewed binary hash; they do not certify other
+platform builds. The executable is a test dependency only and must not enter git.
+
+Canonical Router black-box acceptance stays in tests/legacy_npc. Private
+inspection exists only in internal/gateway/legacy_npc/real_npc_companion_test.go,
+with the legacy_npc_integration build tag. There is no production or tagged
+non-test bridge/API. Both new suites clearly fail if NPC_BIN is absent.
+Ordinary go test ./... remains offline and independent of stock binaries.
+
+| Real proof | Black-box / companion |
+| --- | --- |
+| Byte equality | TestLegacyNPCPayloadMatrix: 1, 5, 19, 257, 4085, 4086, 8192, 65536, 122549, 122550, 122551, 131072, 262144 |
+| Sequential reuse | TestLegacyNPCSequential129; TestRealNPCCompanionSequentialGenerationAndOwnership verifies the unchanged device mux generation and zero live stream/reservation/buffer ownership after each |
+| Simultaneous streams | TestLegacyNPCConcurrentMatrix: 2/8/16, each 262144 bytes; target accept barrier holds every target connection alive before echo is released |
+| Close / lifecycle | TestLegacyNPCClosePaths covers target EOF, public close, route cancel, close before payload, stopping NPC during an active route, and measured half-close; TestLegacyNPCProcessRestartLifecycle and existing TestLegacyNPCMainReplacement |
+| Idle / ping | TestLegacyNPCIdleRecovery: explicit 350ms idle; TestRealNPCCompanionIdlePingRecovery waits for at least three additional actual local pings with matching real responses, confirms >2 configured intervals, then echoes 262144 bytes on the same mux |
+| Two devices / stored target | TestLegacyNPCMultiDeviceIsolation holds B's target connection alive while A exits; B's session remains current and its large echo completes. Caller-supplied TargetAddr and payload mention B, but A still uses the stored A target |
+| Flow credit | TestRealNPCCompanionFlowCredits records real 0x05 consumed deltas and advertised max in both directions for payloads crossing 122550; no enlarged test receive window |
+| Replacement / private cleanup | TestRealNPCCompanionMainReplacementCleanup and TestRealNPCCompanionTwoDeviceLeasesAndIsolation: generation isolation, old-mux worker/resource cleanup, surviving device session+chan lease categories, zero runtime map after final gateway worker joins |
+
+All test resources are temporary loopback listeners and targets. NPC process
+working directories use t.TempDir, stdout/stderr are not captured as bearer-bearing
+logs, and processes are canceled and Wait is joined. Accept loops finish before
+joining their workers; target connections, route copies, mux workers and runtime
+leases have explicit cleanup checks. A test-only post-auth chan wire tap uses the
+production codec, bounded partial-frame buffering and aggregate counters; it
+never receives the outer bearer handshake or exposes payload/secret logs.
+
+Readiness is event-driven in private checks. Canonical external Router tests may
+retry only ErrLegacyDataChannelUnavailable using a bounded fresh connection;
+other protocol/resource/replacement errors fail. Concurrent fixtures use target
+accept events, not sleep-based live-stream assertions. The deliberate idle timer
+and target half-close read deadline measure those specific scenarios rather than
+stand in for state readiness. Test ping interval is 100ms and timeout is 3s;
+production defaults remain 5s/15s. The initial allowance and server advertised
+receive window remain 122550, and frame content remains at most 4085.
+
+Example real flow evidence: five large companion transfers observed 761766
+server-to-NPC data bytes including metadata/framing and the same total NPC
+consumed credit, NPC advertised max 191484, and fixed server max 122550.
+Server receive-credit totals may vary with read/window/close scheduling because
+remote close discards unneeded final pending credit. These counters are wire
+observations, not heap or throughput measurements.
+
+Close semantics are deliberately limited: target close yields readable EOF;
+public close and cancellation tests explicitly cancel the route to join blocked
+copies. They do not claim autonomous TCP EOF propagation. In the bounded real
+half-close probe, public CloseWrite succeeds after immediate echo, but the target
+has not received write-half EOF by its 150ms read deadline. Independent legacy
+TCP half-close is not claimed. No stock chan-only reconnect guarantee, arbitrary
+NPS compatibility, indefinite soak, WAN, or production throughput is claimed.
+
+Run the prescribed acceptance with the verified binary (all commands also passed
+in race mode; retain full output and failures for review):
+
+```sh
+export NPC_BIN="$PWD/.kavern-testbin/nps-v0.26.34/npc"
+export GOPROXY=off GOSUMDB=off
+go test -race -tags=legacy_npc_integration ./tests/legacy_npc -run '^TestLegacyNPC(TCPEcho|MainReplacement)$' -count=20 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./tests/legacy_npc -run '^TestLegacyNPCPayloadMatrix$' -count=5 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./tests/legacy_npc -run '^TestLegacyNPCSequential129$' -count=3 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./tests/legacy_npc -run '^TestLegacyNPCConcurrentMatrix$' -count=10 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./tests/legacy_npc -run '^TestLegacyNPC(ClosePaths|ProcessRestartLifecycle|IdleRecovery)$' -count=20 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./tests/legacy_npc -run '^TestLegacyNPCMultiDeviceIsolation$' -count=10 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./internal/gateway/legacy_npc -run '^TestRealNPCCompanionSequentialGenerationAndOwnership$' -count=3 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./internal/gateway/legacy_npc -run '^TestRealNPCCompanionFlowCredits$' -count=5 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./internal/gateway/legacy_npc -run '^TestRealNPCCompanion(IdlePingRecovery|MainReplacementCleanup)$' -count=20 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./internal/gateway/legacy_npc -run '^TestRealNPCCompanionTwoDeviceLeasesAndIsolation$' -count=10 -v -timeout=10m
+go test -race -tags=legacy_npc_integration ./tests/legacy_npc ./internal/gateway/legacy_npc -count=1 -timeout=5m
+go vet -tags=legacy_npc_integration ./tests/legacy_npc ./internal/gateway/legacy_npc
+go test ./... -count=1
+go test -race ./... -count=1
+go build ./...
+git diff --check
+```
 
 After Gate 0 and after every implementation gate, generated files, diffs, and test output must be reviewed before proceeding to the next gate.
