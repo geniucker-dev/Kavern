@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented; independent assembly review pending. Extends the accepted Gate 2/3/4 interfaces without changing the canonical package layout.
+Accepted after independent r2 assembly review on 2026-10-09; committed as `2b814ec`. Extends the accepted Gate 2/3/4 interfaces without changing the canonical package layout.
 
 ## Decision
 

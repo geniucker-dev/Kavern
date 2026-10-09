@@ -60,6 +60,13 @@ func TestCarrierAggregateWriteBudgetCancellation(t *testing.T) {
 		t.Fatal("write never entered")
 	}
 	go func() { _, err := second.Stream.Write(make([]byte, 100)); done <- err }()
+	until := time.Now().Add(time.Second)
+	for c.Stats().BudgetWaits == 0 && time.Now().Before(until) {
+		time.Sleep(time.Millisecond)
+	}
+	if c.Stats().BudgetWaits == 0 {
+		t.Fatal("second writer did not enter the shared budget wait")
+	}
 	select {
 	case <-stream.entered:
 		t.Fatal("aggregate budget exceeded")
@@ -81,6 +88,10 @@ func TestCarrierAggregateWriteBudgetCancellation(t *testing.T) {
 	}
 	if got := c.InflightBytes(); got != 0 {
 		t.Fatalf("retained=%d", got)
+	}
+	stats := c.Stats()
+	if stats.PeakInflightBytes != 4 || stats.BudgetWaits == 0 || stats.BudgetWaitDuration <= 0 || stats.InflightBytes != 0 {
+		t.Fatalf("backpressure statistics do not reflect blocked/canceled writes: %+v", stats)
 	}
 }
 

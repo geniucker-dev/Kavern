@@ -25,15 +25,18 @@ type Config struct {
 }
 
 type Carrier struct {
-	mu          sync.Mutex
-	session     mux.Session
-	max         int
-	active      int
-	reserved    int
-	closed      bool
-	inflight    int
-	maxInflight int
-	changed     chan struct{}
+	mu                 sync.Mutex
+	session            mux.Session
+	max                int
+	active             int
+	reserved           int
+	closed             bool
+	inflight           int
+	maxInflight        int
+	changed            chan struct{}
+	peakInflight       int
+	budgetWaits        uint64
+	budgetWaitDuration time.Duration
 }
 
 func New(session mux.Session, cfg Config) (*Carrier, error) {
@@ -166,17 +169,27 @@ func (c *Carrier) acquireBytes(ctx context.Context, n int) error {
 		}
 		if n <= c.maxInflight-c.inflight {
 			c.inflight += n
+			c.peakInflight = max(c.peakInflight, c.inflight)
 			c.mu.Unlock()
 			return nil
 		}
 		changed := c.changed
+		c.budgetWaits++
+		started := time.Now()
 		c.mu.Unlock()
+		var err error
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			err = ctx.Err()
 		case <-changed:
 		case <-c.backendDone():
-			return ErrCarrierClosed
+			err = ErrCarrierClosed
+		}
+		c.mu.Lock()
+		c.budgetWaitDuration += time.Since(started)
+		c.mu.Unlock()
+		if err != nil {
+			return err
 		}
 	}
 }
@@ -281,4 +294,20 @@ func (c *Carrier) backendClosed() bool {
 func (s *boundedStream) Close() error {
 	s.closeOnce.Do(func() { s.closeErr = s.Stream.Close() })
 	return s.closeErr
+}
+
+// Stats reports owned payload and local budget waiting only. Backend socket
+// waits and backend receive occupancy are not observable through this API.
+type Stats struct {
+	ActiveStreams      int
+	InflightBytes      int
+	PeakInflightBytes  int
+	BudgetWaits        uint64
+	BudgetWaitDuration time.Duration
+}
+
+func (c *Carrier) Stats() Stats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return Stats{c.active, c.inflight, c.peakInflight, c.budgetWaits, c.budgetWaitDuration}
 }

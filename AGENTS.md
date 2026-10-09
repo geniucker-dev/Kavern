@@ -143,7 +143,7 @@ After Gate 0 and after every implementation gate, generated files, diffs, and te
 
 ### Gate 6S Sequencing
 
-- Gate 6S-1 through Gate 6S-4A have passed review. Gate 6S-4A was independently reviewed on 2026-10-09 and committed locally as e69c133. Gate 6S-4B real pinned-NPC TCP robustness is the current approved implementation scope; its files and results must be independently reviewed before later gates begin.
+- Gate 6S-1 through Gate 6S-4A have passed review. Gate 6S-4A was independently reviewed on 2026-10-09 and committed locally as e69c133. Gate 6S-4B real pinned-NPC TCP robustness passed independent review and was committed locally as 2a4cb8a. The local MVP command/carrier supplement passed independent r2 review and was committed as 2b814ec. Gate 7 loopback benchmark is the current approved implementation scope; its files and measured results require independent review before Gate 8 begins.
 - Gate 6S-3 legacy ownership is device-scoped: legacy main generations and the current legacy mux are independent runtime fields. Replacing a legacy main does not inherently close the device's current mux; replacing a chan closes only the old mux.
 - Authenticated legacy main transitions register device-runtime interest before serialization. A chan remains retained while any live current/attached legacy main or pending main transition exists; state notifications are wakeups, not readiness truth.
 - Legacy main runtime leases and pending-transition interest are acquired atomically. Each authenticated main starts one lifecycle-bound connection monitor before transition serialization; no later code may read that main connection concurrently.
