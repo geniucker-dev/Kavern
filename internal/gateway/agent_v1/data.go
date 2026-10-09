@@ -39,9 +39,21 @@ func (s *AuthService) BindAndAttachCarrier(ctx context.Context, req CarrierBindR
 	if err != nil {
 		return err
 	}
+	if err := s.attachBoundCarrier(ctx, binding, muxSession, cfg); err != nil {
+		return err
+	}
+	attached = true
+	return nil
+}
+
+func (s *AuthService) attachBoundCarrier(ctx context.Context, binding CarrierBinding, muxSession mux.Session, cfg carrier.Config) error {
 	entry, ok := s.registry.lookup(binding.SessionID)
 	if !ok {
 		return ErrSessionNotFound
+	}
+	if !s.now().Before(entry.session.expiresAt) {
+		_ = s.CloseSession(context.Background(), binding.SessionID)
+		return ErrSessionClosed
 	}
 	if entry.session.closed() {
 		s.registry.remove(binding.SessionID)
@@ -63,11 +75,8 @@ func (s *AuthService) BindAndAttachCarrier(ctx context.Context, req CarrierBindR
 		return err
 	}
 	if err := entry.session.attachCarrier(c); err != nil {
-		_ = c.Close()
-		attached = true
 		return err
 	}
-	attached = true
 	return nil
 }
 
@@ -84,10 +93,15 @@ func WriteOpenStreamMetadata(w io.Writer, metadata OpenStreamMetadata) error {
 	}
 	var prefix [4]byte
 	binary.BigEndian.PutUint32(prefix[:], uint32(len(payload)))
-	if _, err := w.Write(prefix[:]); err != nil {
+	if n, err := w.Write(prefix[:]); err != nil {
 		return err
+	} else if n != len(prefix) {
+		return io.ErrShortWrite
 	}
-	_, err = w.Write(payload)
+	n, err := w.Write(payload)
+	if err == nil && n != len(payload) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 

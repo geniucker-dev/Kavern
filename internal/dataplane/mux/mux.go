@@ -6,7 +6,11 @@ import (
 	"net"
 )
 
-type Config struct{}
+type Config struct {
+	MaxReceiveBuffer int
+	MaxStreamBuffer  int
+	MaxFrameSize     int
+}
 
 type Backend interface {
 	Name() string
@@ -15,6 +19,8 @@ type Backend interface {
 }
 
 type Session interface {
+	// ReceiveBufferLimit includes one frame of receive headroom.
+	ReceiveBufferLimit() int
 	OpenStream(ctx context.Context) (Stream, error)
 	AcceptStream(ctx context.Context) (Stream, error)
 	Close() error

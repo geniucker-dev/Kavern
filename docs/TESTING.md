@@ -368,3 +368,20 @@ git diff --check
 ```
 
 After Gate 0 and after every implementation gate, generated files, diffs, and test output must be reviewed before proceeding to the next gate.
+
+## Runnable local MVP assembly supplement (review pending)
+
+Ordinary offline tests include `cmd/kavernd/TestActualCommandsNativeTLSHalfCloseAndRestart`. It builds all three actual commands with race instrumentation and `-buildvcs=false`, uses temporary state/certificates/credentials and loopback listeners, and verifies TLS, two attached carrier readiness, a byte-exact EOF-dependent 262 KiB response, state-lock exclusion, persisted credentials across restart and graceful shutdown. It needs a local Go toolchain and cached dependencies, never NPC_BIN or internet. `-short` explicitly excludes the process test; final acceptance runs without `-short`.
+
+```sh
+go test ./...
+go test -race ./...
+go test -race ./cmd/kavernd -run TestActualCommandsNativeTLSHalfCloseAndRestart -count=3 -v
+go test -race ./internal/dataplane/... ./internal/gateway/agent_v1 -count=20
+go vet ./...
+go build ./...
+```
+
+New regressions cover aggregate pending-write budget/cancellation, combined receive/write budget rejection, pool cap/replacement, native EOF-dependent response, missing/oversized records, canonical injection, metadata short writes, canceled session cleanup, expired-session rejection/detachment, strict JSON ambiguity/limits, encrypted state/wrong-key rejection, private permissions and exclusive state locks. They do not establish WAN performance or the final Gate 8 adversarial matrix.
+
+Assembly deadline review follow-up: `go test -race ./cmd/kavernd -run TestPublicRouteTimeout -count=20` exercises the production connection-handler cleanup with a real framed mux/carrier. An early local socket timeout sends directional request EOF while the peer intentionally remains silent; the per-route deadline must then retire the route, release its lease, make the stream capacity reusable, and free the handler slot without canceling the daemon. A companion test bounds stream opening. The existing actual-process EOF-dependent 262 KiB response test remains unchanged and must still pass.

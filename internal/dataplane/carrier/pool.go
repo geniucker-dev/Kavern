@@ -7,6 +7,7 @@ import (
 )
 
 var (
+	ErrPoolFull           = errors.New("carrier pool full")
 	ErrPoolClosed         = errors.New("carrier pool closed")
 	ErrNoCarrierAvailable = errors.New("no carrier available")
 )
@@ -15,16 +16,20 @@ type Pool struct {
 	mu       sync.Mutex
 	carriers []*Carrier
 	closed   bool
+	changed  chan struct{}
 	next     int
 }
 
 func NewPool(carriers ...*Carrier) (*Pool, error) {
+	if len(carriers) > 4 {
+		return nil, ErrPoolFull
+	}
 	for _, carrier := range carriers {
 		if carrier == nil {
 			return nil, ErrInvalidConfig
 		}
 	}
-	return &Pool{carriers: append([]*Carrier(nil), carriers...)}, nil
+	return &Pool{carriers: append([]*Carrier(nil), carriers...), changed: make(chan struct{})}, nil
 }
 
 func (p *Pool) Add(carrier *Carrier) error {
@@ -39,7 +44,19 @@ func (p *Pool) Add(carrier *Carrier) error {
 	if carrier.Closed() {
 		return ErrCarrierClosed
 	}
+	live := p.carriers[:0]
+	for _, existing := range p.carriers {
+		if !existing.Closed() {
+			live = append(live, existing)
+		}
+	}
+	p.carriers = live
+	if len(p.carriers) >= 4 {
+		return ErrPoolFull
+	}
 	p.carriers = append(p.carriers, carrier)
+	close(p.changed)
+	p.changed = make(chan struct{})
 	return nil
 }
 
@@ -86,6 +103,7 @@ func (p *Pool) Close() error {
 		return nil
 	}
 	p.closed = true
+	close(p.changed)
 	carriers := append([]*Carrier(nil), p.carriers...)
 	p.mu.Unlock()
 
@@ -96,4 +114,33 @@ func (p *Pool) Close() error {
 		}
 	}
 	return first
+}
+
+func (p *Pool) WaitReady(ctx context.Context, n int) error {
+	if n < 1 || n > 4 {
+		return ErrInvalidConfig
+	}
+	for {
+		p.mu.Lock()
+		if p.closed {
+			p.mu.Unlock()
+			return ErrPoolClosed
+		}
+		count := 0
+		for _, c := range p.carriers {
+			if !c.Closed() {
+				count++
+			}
+		}
+		changed := p.changed
+		p.mu.Unlock()
+		if count >= n {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
 }

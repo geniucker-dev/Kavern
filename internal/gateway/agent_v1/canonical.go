@@ -10,12 +10,18 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/geniucker-dev/kavern/internal/config"
 	"github.com/geniucker-dev/kavern/internal/domain"
 )
 
 func CanonicalAuthMessage(deviceID domain.DeviceID, clientNonce, serverNonce, protocolVersion, transportRole string) ([]byte, error) {
-	if deviceID == "" || clientNonce == "" || serverNonce == "" || protocolVersion == "" || transportRole == "" {
+	if !config.ValidID(string(deviceID)) || validateToken(clientNonce) != nil || validateToken(serverNonce) != nil || protocolVersion != ProtocolVersion || transportRole != TransportRoleControl {
 		return nil, ErrInvalidInput
+	}
+	for _, field := range []string{string(deviceID), clientNonce, serverNonce, protocolVersion, transportRole} {
+		if len(field) > 512 || strings.ContainsAny(field, "\r\n\x00") {
+			return nil, ErrInvalidInput
+		}
 	}
 	return []byte(fmt.Sprintf("device_id=%s\nclient_nonce=%s\nserver_nonce=%s\nprotocol_version=%s\ntransport_role=%s\n",
 		deviceID, clientNonce, serverNonce, protocolVersion, transportRole)), nil
@@ -38,8 +44,13 @@ func VerifyAuthResponse(deviceSecret []byte, responseHex string, deviceID domain
 }
 
 func CanonicalCarrierBindMessage(sessionID domain.SessionID, deviceID domain.DeviceID, carrierNonce, protocolVersion, transportRole string) ([]byte, error) {
-	if sessionID == "" || deviceID == "" || carrierNonce == "" || protocolVersion == "" || transportRole == "" {
+	if validateToken(string(sessionID)) != nil || !config.ValidID(string(deviceID)) || validateToken(carrierNonce) != nil || protocolVersion != ProtocolVersion || transportRole != TransportRoleDataCarrier {
 		return nil, ErrInvalidInput
+	}
+	for _, field := range []string{string(sessionID), string(deviceID), carrierNonce, protocolVersion, transportRole} {
+		if len(field) > 512 || strings.ContainsAny(field, "\r\n\x00") {
+			return nil, ErrInvalidInput
+		}
 	}
 	return []byte(fmt.Sprintf("session_id=%s\ndevice_id=%s\ncarrier_nonce=%s\nprotocol_version=%s\ntransport_role=%s\n",
 		sessionID, deviceID, carrierNonce, protocolVersion, transportRole)), nil

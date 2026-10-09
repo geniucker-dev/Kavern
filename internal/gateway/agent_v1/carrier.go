@@ -20,6 +20,10 @@ func (s *AuthService) BindCarrier(ctx context.Context, req CarrierBindRequest) (
 	if entry.session.Protocol() != domain.AgentProtocolKAPv1 {
 		return CarrierBinding{}, ErrSessionNotFound
 	}
+	if !s.now().Before(entry.session.expiresAt) {
+		_ = s.CloseSession(context.Background(), req.SessionID)
+		return CarrierBinding{}, ErrSessionClosed
+	}
 	if entry.session.closed() {
 		s.registry.remove(req.SessionID)
 		return CarrierBinding{}, ErrSessionClosed

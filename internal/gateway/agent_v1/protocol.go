@@ -82,7 +82,7 @@ func GenerateChallengeID() (string, error) {
 }
 
 func validateToken(value string) error {
-	if value == "" {
+	if value == "" || len(value) > 512 {
 		return ErrInvalidInput
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(value)

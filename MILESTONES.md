@@ -199,7 +199,7 @@ Exit criteria:
 - Post-return legacy stream errors are sanitized while safe sentinels remain distinguishable. Stored target selection and metadata-only RemoteAddr remain unchanged.
 - Review the 4A diff, regressions, and validation output before starting 4B in a separate goal. The implementation is not self-approved by passing tests.
 
-## Gate 6S-4B: Real Pinned Compatibility Review (Implementation / Review Pending)
+## Gate 6S-4B: Real Pinned Compatibility Review (Passed)
 
 Scope:
 
@@ -213,6 +213,10 @@ Exit criteria:
 - No TCP half-close, arbitrary NPS compatibility, throughput, or indefinite-soak claim. No NPS_BIN or upstream implementation material.
 
 Every Gate 6S subphase requires a separate review. No later Gate 6S subphase may begin before the immediately preceding subphase passes review.
+
+## Local MVP assembly supplement (Implementation / Review Pending)
+
+Gate 6S-4B passed independent review and was committed as `2a4cb8a` on 2026-10-09. The approved remaining MVP completion scope supplements earlier library gates with carrier byte budgets, native directional EOF and cancellation, strict configuration, encrypted local state, and runnable `kavernd`, `kavern-agent`, and `kavernctl` commands. ADR 0006 and docs/OPERATIONS.md define the decisions and actual-process acceptance. Independent review of this supplement precedes Gate 7/8. No Web UI, management API, public deployment or new dependency is added.
 
 ## Gate 7: Benchmark Harness Review
 

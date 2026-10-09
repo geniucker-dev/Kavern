@@ -371,3 +371,5 @@ func (s *fakeStream) Close() error {
 	s.closeCount++
 	return nil
 }
+
+func (s *fakeSession) ReceiveBufferLimit() int { return 0 }

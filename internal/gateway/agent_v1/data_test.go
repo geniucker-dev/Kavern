@@ -646,3 +646,9 @@ func (r *blockingResolver) WaitForResolve(t *testing.T) {
 		t.Fatal("resolver was not called")
 	}
 }
+
+func (s *fakeMuxSession) ReceiveBufferLimit() int { return 0 }
+
+func (s *blockingAcceptMuxSession) ReceiveBufferLimit() int { return 0 }
+
+func (s *oneStreamThenBlockingMuxSession) ReceiveBufferLimit() int { return 0 }

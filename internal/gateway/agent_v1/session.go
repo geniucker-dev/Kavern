@@ -3,6 +3,7 @@ package agent_v1
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/geniucker-dev/kavern/internal/dataplane/carrier"
 	"github.com/geniucker-dev/kavern/internal/domain"
@@ -10,8 +11,10 @@ import (
 )
 
 type agentSession struct {
-	id       domain.SessionID
-	deviceID domain.DeviceID
+	id        domain.SessionID
+	deviceID  domain.DeviceID
+	expiresAt time.Time
+	now       func() time.Time
 
 	pool *carrier.Pool
 	done chan struct{}
@@ -23,7 +26,7 @@ func newAgentSession(id domain.SessionID, deviceID domain.DeviceID) *agentSessio
 	if err != nil {
 		panic(err)
 	}
-	return &agentSession{id: id, deviceID: deviceID, pool: pool, done: make(chan struct{})}
+	return &agentSession{id: id, deviceID: deviceID, pool: pool, done: make(chan struct{}), expiresAt: time.Now().Add(time.Hour), now: time.Now}
 }
 
 func (s *agentSession) ID() domain.SessionID {
@@ -42,7 +45,8 @@ func (s *agentSession) OpenStream(ctx context.Context, req domain.StreamOpenRequ
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if s.closed() {
+	if s.closed() || !s.now().Before(s.expiresAt) {
+		_ = s.Close(context.Background())
 		return nil, ErrSessionClosed
 	}
 	if req.TunnelID == "" {
@@ -71,9 +75,6 @@ func (s *agentSession) OpenStream(ctx context.Context, req domain.StreamOpenRequ
 }
 
 func (s *agentSession) Close(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	select {
@@ -150,6 +151,9 @@ func (r *sessionRegistry) reserve(id domain.SessionID, sess *agentSession) error
 	if _, ok := r.byID[id]; ok {
 		return ErrSessionIDCollision
 	}
+	if len(r.byID) >= 4096 {
+		return ErrRegistryReserve
+	}
 	r.byID[id] = &registryEntry{session: sess, deviceID: sess.DeviceID(), usedNonce: make(map[string]struct{})}
 	return nil
 }
@@ -203,6 +207,9 @@ func (r *sessionRegistry) markNonceUsed(id domain.SessionID, nonce string) error
 	if _, ok := entry.usedNonce[nonce]; ok {
 		return ErrCarrierNonceReplay
 	}
+	if len(entry.usedNonce) >= 4096 {
+		return ErrInvalidInput
+	}
 	entry.usedNonce[nonce] = struct{}{}
 	return nil
 }
@@ -216,4 +223,11 @@ func (r *sessionRegistry) nonceUsed(id domain.SessionID, nonce string) bool {
 	}
 	_, ok = entry.usedNonce[nonce]
 	return ok
+}
+
+func (s *leasedAgentStream) CloseWrite() error {
+	if cw, ok := s.Stream.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return ErrUnsupportedTunnelProtocol
 }

@@ -2,6 +2,7 @@ package agent_v1
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -107,6 +108,15 @@ func (s *AuthService) BeginAuth(ctx context.Context, req AuthStartRequest) (Auth
 		ExpiresAt:   expiresAt,
 	}
 	s.challengesMu.Lock()
+	for id, existing := range s.challenges {
+		if !now.Before(existing.ExpiresAt) {
+			delete(s.challenges, id)
+		}
+	}
+	if len(s.challenges) >= 4096 {
+		s.challengesMu.Unlock()
+		return AuthChallenge{}, ErrInvalidInput
+	}
 	s.challenges[challengeID] = state
 	s.challengesMu.Unlock()
 	return AuthChallenge{
@@ -151,6 +161,8 @@ func (s *AuthService) CompleteAuth(ctx context.Context, req AuthFinishRequest) (
 		return AuthResult{}, err
 	}
 	agentSession := newAgentSession(sessionID, device.ID)
+	agentSession.now = s.now
+	agentSession.expiresAt = s.now().Add(time.Hour)
 	s.registrationMu.Lock()
 	defer s.registrationMu.Unlock()
 	if err := s.registry.reserve(sessionID, agentSession); err != nil {
@@ -172,9 +184,9 @@ func (s *AuthService) CloseSession(ctx context.Context, sessionID domain.Session
 	if !ok {
 		return ErrSessionNotFound
 	}
-	if err := entry.session.Close(ctx); err != nil {
-		return err
-	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	closeErr := entry.session.Close(cleanupCtx)
 	s.registry.remove(sessionID)
-	return s.sessions.Detach(ctx, sessionID)
+	return errors.Join(closeErr, s.sessions.Detach(cleanupCtx, sessionID))
 }
