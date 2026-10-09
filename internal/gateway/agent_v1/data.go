@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/geniucker-dev/kavern/internal/config"
 	"github.com/geniucker-dev/kavern/internal/dataplane/carrier"
 	"github.com/geniucker-dev/kavern/internal/dataplane/mux"
 	"github.com/geniucker-dev/kavern/internal/domain"
@@ -121,14 +122,8 @@ func ReadOpenStreamMetadata(r io.Reader) (OpenStreamMetadata, error) {
 	if _, err := io.ReadFull(r, payload); err != nil {
 		return OpenStreamMetadata{}, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
 	var metadata OpenStreamMetadata
-	if err := decoder.Decode(&metadata); err != nil {
-		return OpenStreamMetadata{}, ErrMalformedMetadata
-	}
-	var extra struct{}
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := config.DecodeJSON(bytes.NewReader(payload), &metadata); err != nil {
 		return OpenStreamMetadata{}, ErrMalformedMetadata
 	}
 	if err := validateOpenStreamMetadata(metadata); err != nil {
@@ -141,7 +136,7 @@ func ReadOpenStreamMetadata(r io.Reader) (OpenStreamMetadata, error) {
 }
 
 func validateOpenStreamMetadata(metadata OpenStreamMetadata) error {
-	if metadata.Version != ProtocolVersion || metadata.Type != OpenStreamMessageType || metadata.TunnelID == "" {
+	if metadata.Version != ProtocolVersion || metadata.Type != OpenStreamMessageType || !config.ValidID(string(metadata.TunnelID)) {
 		return ErrInvalidInput
 	}
 	if metadata.Protocol != domain.TunnelProtocolTCP {

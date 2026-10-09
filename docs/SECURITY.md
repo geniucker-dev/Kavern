@@ -1,0 +1,27 @@
+# MVP security boundaries
+
+Gate 8 implementation and fresh evidence passed independent review on 2026-10-09. This is a local MVP acceptance record, not an external audit or a production deployment approval.
+
+## Authentication, transport and credentials
+
+Native commands require verified TLS (minimum TLS 1.2); no insecure CLI option exists. Tests perform real TLS handshakes and require rejection of an unknown CA, wrong server name, expired certificate and TLS 1.0/1.1-only client, alongside a valid trusted handshake. KAPv1 HMAC binds valid bounded device IDs/nonces, fixed version and distinct control/data roles. Challenges are consumed on success or failure; reused/expired challenges and carrier nonces fail. A session ID alone cannot attach a carrier, and replaced, expired, disabled and closed sessions fail binding. Current-device checks are repeated before attachment. Control disconnect owns cleanup.
+
+Native secrets and legacy vkeys are generated with 32 random bytes and emitted once by offline creation/rotation after state save. Native secrets use external-key AES-256-GCM at rest with fresh nonces and device-bound associated data; real tamper/wrong-key/cross-device ciphertext tests fail closed. Legacy authentication stores only server-secret HMAC-SHA256 of the normalized MD5 wire token. Rotation removes the old legacy lookup and replaces native secrets. Offline state lock excludes a running daemon; administrative changes apply only after stopping and restarting it. Rotation is not a hot-revocation API. Losing the external master/server keys cannot be repaired from stored credentials.
+
+Legacy bearer MD5 and stock NPC's raw TCP boundary remain compatibility limitations. Native agent code does not use MD5, nps protocol or nps_mux. Stock compatibility is limited to pinned v0.26.34 server configuration mode and tested TCP operations. Separate license/compliance review remains required before closed-source commercial distribution; this gate does not grant that approval.
+
+## Parser and target boundaries
+
+Control and stream-open metadata are capped at 4 KiB before allocation; JSON rejects duplicate keys including case aliases, unknown fields, invalid UTF-8, trailing documents and depth beyond 32. Tunnel IDs use the bounded canonical ID validator. Configuration/state cap input at 1 MiB. Native records cap payload at 16 KiB and reject oversize/incomplete records without full-record read allocation. Legacy frame content is capped at 4,085 bytes; handshake, metadata and target validation retain their separate source-informed limits.
+
+Server routing enforces disabled device/tunnel records. Native open metadata contains tunnel ID and protocol, not target addresses; the agent dials only its configured target map. Unknown tunnels and an injected target_addr cannot select a target. Legacy Link Host is resolved from stored tunnel ownership; request target overrides and cross-device tunnels fail. Configured operator targets are trusted destinations; this is not a network-wide firewall, DNS rebinding defense or IP allowlist. No packet/application payload can choose an arbitrary target address.
+
+## Resource and output boundaries
+
+Current routing permits one active session per device. History now stores at most 1,024 facts globally, without per-device history map growth; 20,000 replacements plus 5,000 distinct detached devices verify eviction, current routing, close and index cleanup. Challenges, registry entries and per-session used carrier nonces cap at 4,096; expired challenges prune and registry/replay capacity becomes reusable on cleanup. Native carrier count/stream/payload queues and accepted handlers are bounded. The standalone legacy Serve now rejects connections beyond 256 and closes/joins all stalled handshakes on cancellation; a 300-connection test proves admission and cleanup. Direct callers of ServeConn own their own admission budget. See OPERATIONS.md for numeric limits, timeouts, cancellation behavior and payload-budget/RSS distinction.
+
+Daemon/agent readiness output contains only events/addresses. Commands return generic credential errors. Tests inspect actual process diagnostics and ordinary CLI mutation output for credential leaks. One-time credential issuance stdout is deliberately sensitive; operators must keep it private. Encrypted persistence tests check raw native secret/vkey/wire-token absence. HMAC lookup material is intentionally persisted in private state and never logged. OS environment/process access and terminal history are operator security responsibilities. State/certificate paths are trusted local configuration; this MVP is not hardened against a malicious local user with the same UID.
+
+## Validation scope
+
+Four bounded native/control/metadata/config/legacy parser fuzz targets supplement deterministic negative tests. Campaign duration, execution counts and corpus output are retained with each run; bounded fuzz does not establish absence of all parser vulnerabilities. Ordinary tests stay offline and NPC_BIN-free. Final validation includes real native command/TLS/EOF/restart processes and tagged pinned real NPC tests; fake peer tests remain distinct from compatibility evidence. This is Linux amd64 only. No WAN, other NPC versions, other platforms, multi-active/HA, production load, indefinite soak or external vulnerability audit is claimed. Staticcheck is not installed; go vet and import/source guards are used and reported accurately.

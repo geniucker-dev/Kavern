@@ -1,6 +1,6 @@
 # Local MVP operation
 
-This assembly is implemented for independent review. It does not authorize deployment, public exposure, or production credential creation. The supported execution platform for the local state lock is Linux; other platforms fail closed when opening state. Ordinary tests use isolated temporary state, certificates and credentials and require neither internet nor NPC_BIN.
+The local assembly passed independent r2 review as 2b814ec; Gate 7 passed as bc11abc. Gate 8 and final local MVP acceptance passed independent review on 2026-10-09. It does not authorize deployment, public exposure, or production credential creation. The supported execution platform for the local state lock is Linux; other platforms fail closed when opening state. Ordinary tests use isolated temporary state, certificates and credentials and require neither internet nor NPC_BIN.
 
 ## Build and inspect
 
@@ -84,12 +84,14 @@ Put the one-time native secret in the external environment variable named by `se
 - `max_buffer` includes backend queued receive payload plus owned pending write copies. The backend reserves 65,535 bytes of headroom because its wire frame length is 16-bit; a hostile peer is not assumed to honor our configured outbound frame size. Object/TLS/socket/kernel overhead is excluded; this is not a total process RSS promise.
 - Native control frames are length-prefixed JSON of at most 4,096 bytes. Duplicate keys, unknown fields, invalid UTF-8, trailing JSON, and nesting beyond 32 levels fail closed. Configuration/state JSON is capped at 1 MiB.
 - Native handshake and target dialing: five seconds. Metadata header: five seconds. Control heartbeat: ten seconds; idle: 30 seconds; session lifetime: one hour. Native auth challenges: two minutes. Public TCP routes have a five-minute absolute deadline, not a reset-on-progress idle timeout. A per-route deadline context covers stream opening and both copy directions; expiration closes the inbound connection, retires the route, releases its stream lease, joins cancellation cleanup and frees its handler slot even when the remote response remains silent.
+- Session observability keeps at most 1,024 recent records across all devices, evicting oldest records. ListForDevice may omit an old still-current session; routing uses the current index and never depends on history. This is not a persistent audit log.
+- The standalone legacy Gateway.Serve entry point also caps accepted handlers at 256, closes overload connections, and cancels/closes/joins accepted handlers on exit. kavernd already uses a shared 256-slot budget across all listener types.
 - Auth challenges, active registry entries, and used carrier nonces are capped at 4,096 each. Expired challenges are pruned on insertion; sessions reject expired binds/opens and the control owner retires them at expiry. A daemon accepts at most 256 concurrent transport/public connections in total.
 
-## Current acceptance and remaining review
+## Current accepted local MVP
 
 `go test -race ./cmd/kavernd -run TestActualCommandsNativeTLSHalfCloseAndRestart -count=1` builds and runs all three actual commands with race instrumentation. It exercises offline setup, verified TLS, two attached carriers, a 262 KiB response generated only after request EOF, exclusive state locking, daemon/agent restart from persisted encrypted state, and graceful process shutdown. All resources are temporary and loopback-only.
 
 The native mux adapter uses bounded stream records with explicit directional EOF (ADR 0006). This avoids premature buffered-data reclamation during backend bidirectional FIN handling. It is a native Kavern transport detail and does not change legacy npc framing.
 
-Benchmark and final security gates follow independent review of this assembly. This document does not claim WAN performance, high availability, arbitrary npc versions/platforms, hot credential changes, or production readiness.
+Gate 7 loopback measurement is independently reviewed. See SECURITY.md for Gate 8 evidence boundaries and ACCEPTANCE.md for the final acceptance map. This document does not claim WAN performance, high availability, arbitrary npc versions/platforms, hot credential changes, or production readiness.

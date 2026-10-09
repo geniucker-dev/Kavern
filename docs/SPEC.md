@@ -545,6 +545,6 @@ Full WAN/server benchmark requires human deployment and is not an autonomous acc
 
 After Gate 0 and every implementation gate, generated files, diffs, and test output must be reviewed before proceeding.
 
-## Local MVP assembly supplement (review pending, 2026-10-09)
+## Local MVP assembly supplement (passed: 2b814ec, 2026-10-09)
 
-ADR 0006 and OPERATIONS.md define strict local configuration, external keys, encrypted atomic state, offline administration, native TLS control/carrier assembly, directional EOF records, resource/timeouts and actual-process acceptance. The canonical layout and existing domain/gateway/session/router boundaries are unchanged. Earlier stream-only carrier limits are supplemented with pending-write and backend receive payload budgets. Gate 7/8 remain pending after independent assembly review.
+ADR 0006 and OPERATIONS.md define strict local configuration, external keys, encrypted atomic state, offline administration, native TLS control/carrier assembly, directional EOF records, resource/timeouts and actual-process acceptance. The canonical layout and existing domain/gateway/session/router boundaries are unchanged. Earlier stream-only carrier limits are supplemented with pending-write and backend receive payload budgets. Gate 7 passed independent review as bc11abc; Gate 8 and the final local MVP passed independent review on 2026-10-09.

@@ -78,10 +78,19 @@ func (g *Gateway) Serve(ctx context.Context, listener net.Listener) error {
 	if listener == nil {
 		return ErrInvalidConfig
 	}
-	go func() {
-		<-ctx.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	listenerStopped := make(chan struct{})
+	stopListener := context.AfterFunc(ctx, func() { defer close(listenerStopped); _ = listener.Close() })
+	defer func() {
+		cancel()
+		if !stopListener() {
+			<-listenerStopped
+		}
 		_ = listener.Close()
+		workers.Wait()
 	}()
+	slots := make(chan struct{}, 256)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -90,7 +99,24 @@ func (g *Gateway) Serve(ctx context.Context, listener net.Listener) error {
 			}
 			return err
 		}
+		select {
+		case slots <- struct{}{}:
+		default:
+			_ = conn.Close()
+			continue
+		}
+		workers.Add(1)
 		go func() {
+			defer workers.Done()
+			defer func() { <-slots }()
+			defer conn.Close()
+			stopped := make(chan struct{})
+			stop := context.AfterFunc(ctx, func() { defer close(stopped); _ = conn.Close() })
+			defer func() {
+				if !stop() {
+					<-stopped
+				}
+			}()
 			_ = g.ServeConn(ctx, conn)
 		}()
 	}

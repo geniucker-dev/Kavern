@@ -22,11 +22,12 @@ func TestMetadataRejectsShortWrite(t *testing.T) {
 	}
 }
 func TestCanonicalRejectsFieldInjection(t *testing.T) {
+	nonce := mustNonce(t)
 	for _, value := range []string{"device\nclient_nonce=injected", "device\r", "device\x00"} {
-		if _, err := CanonicalAuthMessage(domain.DeviceID(value), "a", "b", ProtocolVersion, "control"); !errors.Is(err, ErrInvalidInput) {
+		if _, err := CanonicalAuthMessage(domain.DeviceID(value), nonce, nonce, ProtocolVersion, TransportRoleControl); !errors.Is(err, ErrInvalidInput) {
 			t.Fatalf("injection accepted: %v", err)
 		}
-		if _, err := CanonicalCarrierBindMessage(domain.SessionID(value), "device", "a", ProtocolVersion, "data"); !errors.Is(err, ErrInvalidInput) {
+		if _, err := CanonicalCarrierBindMessage(domain.SessionID(value), "device", nonce, ProtocolVersion, TransportRoleDataCarrier); !errors.Is(err, ErrInvalidInput) {
 			t.Fatalf("bind injection accepted: %v", err)
 		}
 	}

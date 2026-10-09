@@ -1,6 +1,6 @@
 # Local mux/carrier benchmark
 
-Gate 7 harness, implementation review pending. The only measured backend is the pinned `smux` implementation behind Kavern's `mux.Backend` and bounded carrier pool. All connections are real TCP on `127.0.0.1:0`; the harness has no remote address flag. It measures the native mux/carrier boundary without TLS, control authentication, NPC, or target dialing. These are local regression measurements, not production/WAN throughput claims.
+Gate 7 harness, independent review passed as bc11abc. The only measured backend is the pinned `smux` implementation behind Kavern's `mux.Backend` and bounded carrier pool. All connections are real TCP on `127.0.0.1:0`; the harness has no remote address flag. It measures the native mux/carrier boundary without TLS, control authentication, NPC, or target dialing. These are local regression measurements, not production/WAN throughput claims.
 
 ## Reproduce
 

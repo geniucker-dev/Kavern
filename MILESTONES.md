@@ -218,7 +218,7 @@ Every Gate 6S subphase requires a separate review. No later Gate 6S subphase may
 
 Gate 6S-4B passed independent review and was committed as `2a4cb8a` on 2026-10-09. The approved remaining MVP completion scope supplements earlier library gates with carrier byte budgets, native directional EOF and cancellation, strict configuration, encrypted local state, and runnable `kavernd`, `kavern-agent`, and `kavernctl` commands. ADR 0006 and docs/OPERATIONS.md define the decisions and actual-process acceptance. Independent r2 review of this supplement passed before Gate 7 implementation. No Web UI, management API, public deployment or new dependency is added.
 
-## Gate 7: Benchmark Harness Review (Implementation / Review Pending)
+## Gate 7: Benchmark Harness Review (Passed: bc11abc)
 
 Scope:
 
@@ -234,7 +234,7 @@ Exit criteria:
 - No production performance claims are made from local-only benchmarks.
 - Full WAN/server benchmark requires human deployment and is not an autonomous acceptance gate.
 
-## Gate 8: Security Review
+## Gate 8: Security Review (Passed: 2026-10-09)
 
 Scope:
 

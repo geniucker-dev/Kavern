@@ -154,6 +154,19 @@ func TestActualCommandsNativeTLSHalfCloseAndRestart(t *testing.T) {
 			t.Fatalf("actual TLS native half-close attempt %d: bytes=%d err=%v", attempt, len(response), err)
 		}
 	}
+	logs, err := filepath.Glob(filepath.Join(dir, "process-stderr-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range logs {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(data, []byte(credential.Secret)) || bytes.Contains(data, []byte(base64.RawURLEncoding.EncodeToString(master))) {
+			t.Fatal("credential leaked in actual process diagnostics")
+		}
+	}
 	raw, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatal(err)

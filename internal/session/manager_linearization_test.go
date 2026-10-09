@@ -45,7 +45,7 @@ func TestManagerAttachCancelWhileWaitingForLock(t *testing.T) {
 	defer cancel()
 	ctx := &attachCheckContext{Context: base, checked: make(chan struct{})}
 	m.mu.Lock()
-	history := append([]AgentSessionInfo(nil), m.history[prior.DeviceID()]...)
+	history := append([]AgentSessionInfo(nil), m.history...)
 	done := make(chan error, 1)
 	go func() { done <- m.Attach(ctx, next) }()
 	select {
@@ -67,7 +67,7 @@ func TestManagerAttachCancelWhileWaitingForLock(t *testing.T) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.current[prior.DeviceID()] != prior || m.byID[prior.ID()] != prior || m.byID[next.ID()] != nil ||
-		len(m.byID) != 1 || len(m.current) != 1 || !reflect.DeepEqual(history, m.history[prior.DeviceID()]) ||
+		len(m.byID) != 1 || len(m.current) != 1 || !reflect.DeepEqual(history, m.history) ||
 		prior.closed || next.closed {
 		t.Fatal("canceled Attach mutated publication state or closed a session")
 	}

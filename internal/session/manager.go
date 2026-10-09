@@ -13,18 +13,22 @@ var (
 	ErrDuplicateSessionID = errors.New("duplicate active session id")
 )
 
+// MaxSessionHistory bounds process-wide observability records. Routing never
+// depends on history, which may evict records for still-current sessions.
+const MaxSessionHistory = 1024
+
 type Manager struct {
 	mu      sync.RWMutex
 	current map[domain.DeviceID]AgentSession
 	byID    map[domain.SessionID]AgentSession
-	history map[domain.DeviceID][]AgentSessionInfo
+	history []AgentSessionInfo
 }
 
 func NewManager() *Manager {
 	return &Manager{
 		current: make(map[domain.DeviceID]AgentSession),
 		byID:    make(map[domain.SessionID]AgentSession),
-		history: make(map[domain.DeviceID][]AgentSessionInfo),
+		history: make([]AgentSessionInfo, 0, MaxSessionHistory),
 	}
 }
 
@@ -50,9 +54,13 @@ func (m *Manager) Attach(ctx context.Context, next AgentSession) error {
 	}
 	m.current[next.DeviceID()] = next
 	m.byID[next.ID()] = next
-	m.history[next.DeviceID()] = append(m.history[next.DeviceID()], AgentSessionInfo{
-		ID: next.ID(), DeviceID: next.DeviceID(), Protocol: next.Protocol(), Current: true,
-	})
+	info := AgentSessionInfo{ID: next.ID(), DeviceID: next.DeviceID(), Protocol: next.Protocol()}
+	if len(m.history) == MaxSessionHistory {
+		copy(m.history, m.history[1:])
+		m.history[len(m.history)-1] = info
+	} else {
+		m.history = append(m.history, info)
+	}
 	m.mu.Unlock()
 
 	if replaced != nil {
@@ -103,7 +111,12 @@ func (m *Manager) ListForDevice(ctx context.Context, deviceID domain.DeviceID) (
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	infos := append([]AgentSessionInfo(nil), m.history[deviceID]...)
+	var infos []AgentSessionInfo
+	for _, info := range m.history {
+		if info.DeviceID == deviceID {
+			infos = append(infos, info)
+		}
+	}
 	var currentID domain.SessionID
 	if current := m.current[deviceID]; current != nil {
 		currentID = current.ID()

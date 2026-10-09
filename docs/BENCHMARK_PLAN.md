@@ -113,6 +113,6 @@ Gate 7, Benchmark Harness Review, must verify:
 - Results do not claim production performance from local loopback measurements.
 - WAN benchmark remains explicitly manual.
 
-## Gate 7 implementation (review pending, 2026-10-09)
+## Gate 7 implementation (passed: bc11abc, 2026-10-09)
 
 `experiments/muxbench` implements real bounded TCP loopback smux/carrier workloads, exact payload verification, machine-readable repeated results and local CPU/heap/RSS/goroutine/FD/backpressure measurements. See its README for exact fixed scenarios, parameter bounds, metric definitions, profiling commands and unavailable receive occupancy. The only measured backend is smux v1.5.57; yamux, kavernmux and optional QUIC remain future unimplemented/unmeasured comparisons. WAN remains an explicitly manual deployment phase.
