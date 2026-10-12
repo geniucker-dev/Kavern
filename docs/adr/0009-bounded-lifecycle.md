@@ -1,6 +1,8 @@
 # ADR 0009: Bounded renewable native lifetime
 
-Status: proposed for independent design review, 2026-10-12. Implementation is paused.
+Status: design accepted; L1 independently accepted and committed as
+`5cd497d4d7d775ae0f2f14878480afae28ce864a`. L2 command/control integration is
+a candidate for independent review. Route/proxy adoption remains paused.
 Baseline: `e442fac00ed33ddfe13370c0e1552f8c08f2e83c` (accepted M2).
 
 ## Requirements and current evidence
@@ -233,3 +235,83 @@ integration acceptance above remains mandatory, including quiet/continuous same-
 crossing virtual historical limits and an approximately 100-second real-process smoke
 on one target-confirmed connection, unchanged desired revision, multiple renewals,
 revocation and fresh full synchronization. No production test clock/fault controls.
+
+## L2 command/control candidate boundary
+
+The authorized L2 slice requires lifecycle v1 on synchronized command transport.
+The bootstrap agent and public TLS synchronization client send the lifecycle-bound
+exchange directly; rejection never falls back to schema-only authentication. The
+standalone schema-only authentication/control cores remain for existing own-peer
+regression, and retain their old absolute timeout. The command endpoint rejects a
+schema-only control or carrier before challenge/session attachment.
+
+Authentication retains the exact ConfigOwner session-creation interest, creates
+its lease before predecessor cleanup, and binds the frozen initial grant to the
+verified finish. Replacement cleanup cannot postpone new-session expiry. A session
+with negotiated lifecycle and no attached lease is inadmissible. The trusted
+constructor clock dependency is internal execution wiring; no clock controls are
+available through environment, bootstrap, CLI, management API or wire messages.
+
+Snapshot, ACK, heartbeat and readiness frames require `lifecycle_version=1` on this
+negotiated control stream. Transfer totals and both staging reservations include
+those encoded bytes, while the existing 4096-byte snapshot frame and 1 MiB transfer
+ceilings remain. Lifecycle authentication/renewal frames and negotiated carrier
+handshakes remain at most 1024 bytes. Carrier binding and confirmation use the L1
+separate transcripts with all negotiated versions, device/session scope and nonce;
+revision, transfer and policy are additionally checked against the applied snapshot.
+An old carrier proof cannot attach to a renewable session.
+
+One control reader feeds the existing eight-frame queue. The coordinator remains
+the only writer and dispatches renewal challenges, responses and grants alongside
+snapshots, ACKs and heartbeat. Lease wakeups are coalesced hints, not extra frame
+queues. The real-time read-progress/write/transfer/ready budgets and heartbeat stay;
+negotiated expiry uses the monotonic lease timer instead of the fixed one-hour
+control context. Expiry/revocation interrupts a blocked write, releases snapshots,
+closes carriers and joins the existing ownership cleanup. Client expiry clears its
+secret, aborts transport and makes snapshot/target/readiness admission fail. Server
+admission and readiness recheck the same lease and current owner/session authority.
+Ordinary operation cancellation, stale snapshot tuple or readiness failure is
+isolated from terminal lease authority; independent revoked/expired authority still
+retires the session.
+
+L2 acceptance uses injected timers and local Go peers: 125 renewals over a virtual
+hour with unchanged desired revision; loss of one challenge/proof/grant; wrong
+scope, future generation and mismatched pending nonce; stopped peer blocked writer;
+operation cancellation; rotation/delete/disable/replacement; rotation during initial
+authentication; new session with full snapshot ACK on reconnect; and new expiry
+while predecessor close is blocked. Existing verified TLS, carrier readiness,
+route target isolation, actual daemon/CLI/agent mutation process regression and
+ordinary/race/legacy own-peer suites must pass. These are control lifetime claims,
+not evidence of a sustained TCP flow crossing the historical route limits.
+
+The native public-route context and socket five-minute deadlines, stream metadata
+open/dial phases, proxy write/half-close semantics and approximately 100-second
+same-flow process acceptance remain mandatory in later separately reviewed slices.
+Do not claim that native route age limits are removed by L2. Native performance
+baseline is unchanged, and real external NPC binaries are not used in this slice.
+
+### L2 R2 review corrections
+
+The independent L2 review rejected four concrete failures. R2 binds an incoming
+finish to the transport-local frozen challenge before looking up or consuming a
+pending exchange; a valid finish for another connection cannot authenticate here.
+If initial completion fails after publication, it closes that exact session ID
+before returning, including caller cancellation during predecessor cleanup.
+
+Native projections now reserve delivery capacity for lifecycle-v1 envelopes before
+command listeners can be constructed. The reservation accounts escaped JSON field
+bytes, 43-character session identity, maximum uint64 revision/transfer counter widths,
+index/count bounds, bookends and bounded carrier policy. This deliberately reserves
+for later counter growth, so some projections that fit a shorter current exchange
+are rejected before durable mutation or synchronized startup. Config retains scalar
+resource reservations rather than gateway frame/session types; codec regressions
+check accepted reservations against real maximum-width plans. Historical state stays
+readable for repair, failed startup preserves its bytes and releases its lock, and
+the transfer limit remains 1 MiB. Ordinary business shape validation is unchanged.
+
+Ready and snapshot observation jointly guard lease authority and receiver state,
+checking monotonic expiry after both guards are acquired. Observation rejects expired
+or revoked authority even with delayed timer/dispatcher cleanup. It releases both
+guards before terminal cleanup; a live carrier count or cached ready tuple cannot
+supply missing authority. Permanent regressions and the reviewer's unchanged four
+reproductions cover each correction. L2 remains uncommitted until independent GO.

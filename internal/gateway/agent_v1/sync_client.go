@@ -31,7 +31,7 @@ func RunBootstrapAgent(ctx context.Context, cfg config.NativeBootstrap, ready fu
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if errors.Is(err, ErrSyncSchema) || errors.Is(err, ErrSyncTransfer) {
+		if errors.Is(err, ErrSyncSchema) || errors.Is(err, ErrSyncTransfer) || errors.Is(err, ErrLifecycle) {
 			return ErrNativeMigration
 		}
 		if reached {
@@ -117,12 +117,35 @@ func runBootstrapSession(parent context.Context, cfg config.NativeBootstrap, sec
 
 // ReadySnapshot exposes only projected business state after exact scoped ready.
 func (r *ConfigReceiver) ReadySnapshot() (domain.NativeSnapshot, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed || r.stage != nil || !r.ackDeadline.IsZero() || r.ready.Revision == 0 || r.ready != r.currentTupleLocked() || r.liveCarriersLocked() != r.applied.Policy.Carriers {
-		return domain.NativeSnapshot{}, false
+	return r.observeSnapshot(true)
+}
+
+// Lease precedes receiver state in this observation guard. Check the clock after
+// acquiring both guards; delayed worker cleanup cannot supply ready authority.
+// Terminal cleanup runs only after both guards have been released.
+func (r *ConfigReceiver) observeSnapshot(requireReady bool) (domain.NativeSnapshot, bool) {
+	lease := r.lifecycle
+	if lease != nil {
+		lease.mu.Lock()
 	}
-	snapshot := r.applied
-	snapshot.Tunnels = append([]domain.NativeTunnel(nil), snapshot.Tunnels...)
-	return snapshot, true
+	r.mu.Lock()
+	live := r.auth.LifecycleVersion == 0 || lease != nil
+	if lease != nil {
+		live = lease.liveLocked(lease.clock.Now()) == nil
+	}
+	var snapshot domain.NativeSnapshot
+	valid := live && !r.closed && r.applied.Revision != 0
+	if requireReady {
+		valid = valid && r.stage == nil && r.ackDeadline.IsZero() && r.ready.Revision != 0 && r.ready == r.currentTupleLocked() && r.liveCarriersLocked() == r.applied.Policy.Carriers
+	}
+	if valid {
+		snapshot = r.applied
+		snapshot.Tunnels = append([]domain.NativeTunnel(nil), snapshot.Tunnels...)
+	}
+	r.mu.Unlock()
+	if lease != nil {
+		lease.mu.Unlock()
+		lease.finish()
+	}
+	return snapshot, valid
 }

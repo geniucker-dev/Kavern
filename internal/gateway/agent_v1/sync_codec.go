@@ -190,9 +190,10 @@ func writeSyncFrame(w io.Writer, f syncFrame) error {
 // Only the snapshot is retained. Entries are generated one at a time; no
 // transfer-sized frame queue is built. Total includes begin/entry/end payloads.
 type syncPlan struct {
-	tuple    syncTuple
-	snapshot domain.NativeSnapshot
-	total    uint32
+	tuple     syncTuple
+	snapshot  domain.NativeSnapshot
+	total     uint32
+	lifecycle int
 }
 
 func newSyncPlan(auth SyncAuthResult, snapshot domain.NativeSnapshot, transfer domain.ConfigRevision) (*syncPlan, error) {
@@ -200,11 +201,11 @@ func newSyncPlan(auth SyncAuthResult, snapshot domain.NativeSnapshot, transfer d
 		return nil, ErrSyncTransfer
 	}
 	snapshot.Tunnels = append([]domain.NativeTunnel(nil), snapshot.Tunnels...)
-	p := &syncPlan{tuple: syncTuple{auth.DeviceID, auth.SessionID, snapshot.Revision, transfer}, snapshot: snapshot, total: 1}
+	p := &syncPlan{tuple: syncTuple{auth.DeviceID, auth.SessionID, snapshot.Revision, transfer}, snapshot: snapshot, total: 1, lifecycle: auth.LifecycleVersion}
 	for attempt := 0; attempt < 8; attempt++ {
 		total := uint64(0)
 		for i := 0; i < p.frames(); i++ {
-			data, err := encodeSyncPayload(p.frame(i))
+			data, err := encodeNegotiatedSyncPayload(p.frame(i), p.lifecycle)
 			if err != nil {
 				return nil, err
 			}

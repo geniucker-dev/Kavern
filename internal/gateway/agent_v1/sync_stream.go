@@ -213,6 +213,11 @@ func (r *ConfigReceiver) resolveSyncTarget(ctx context.Context, m SyncStreamMeta
 	return target, err
 }
 func (r *ConfigReceiver) admitSyncTarget(ctx context.Context, m SyncStreamMetadata) (string, *session.WorkLease, error) {
+	if r.lifecycle != nil {
+		if e := r.lifecycle.Valid(); e != nil {
+			return "", nil, e
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return "", nil, err
 	}

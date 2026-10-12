@@ -11,12 +11,15 @@ import (
 )
 
 type agentSession struct {
-	id          domain.SessionID
-	deviceID    domain.DeviceID
-	syncVersion int
-	syncData    *syncSessionData
-	expiresAt   time.Time
-	now         func() time.Time
+	id               domain.SessionID
+	deviceID         domain.DeviceID
+	syncVersion      int
+	lifecycleVersion int
+	lifecycle        *ServerLease
+	lifecycleGrant   LifecycleFrame
+	syncData         *syncSessionData
+	expiresAt        time.Time
+	now              func() time.Time
 
 	pool *carrier.Pool
 	done chan struct{}
@@ -47,9 +50,18 @@ func (s *agentSession) OpenStream(ctx context.Context, req domain.StreamOpenRequ
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if s.closed() || !s.now().Before(s.expiresAt) {
+	if s.closed() || (s.lifecycleVersion == 0 && !s.now().Before(s.expiresAt)) {
 		_ = s.Close(context.Background())
 		return nil, ErrSessionClosed
+	}
+	if s.lifecycleVersion != 0 {
+		lease := s.serverLease()
+		if lease == nil {
+			return nil, ErrSessionClosed
+		}
+		if err := lease.Valid(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if s.syncVersion != 0 {
 		return s.openSyncStream(ctx, req)
@@ -235,4 +247,10 @@ func (s *leasedAgentStream) CloseWrite() error {
 		return cw.CloseWrite()
 	}
 	return ErrUnsupportedTunnelProtocol
+}
+
+func (s *agentSession) serverLease() *ServerLease {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lifecycle
 }

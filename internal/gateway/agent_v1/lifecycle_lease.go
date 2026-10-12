@@ -25,8 +25,8 @@ type lifecycleReceipt struct {
 	proofs int
 }
 
-// ServerLease is standalone L1 authority. No command/control/data-plane dispatch
-// creates it yet. One timer, one pending challenge, one receipt and one wake token
+// ServerLease owns negotiated control authority. One timer, one pending
+// challenge, one receipt and one wake token
 // bound retained state. No nonce/proof/credential is persisted or logged.
 type ServerLease struct {
 	mu              sync.Mutex
@@ -366,4 +366,16 @@ func (l *ServerLease) Generation() domain.ConfigRevision {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.generation
+}
+
+// withAdmission isolates an ordinary operation failure from lease authority.
+// Independent revocation/expiry still closes the session; a stale application
+// tuple or canceled route request cannot revoke an otherwise live session.
+func (l *ServerLease) withAdmission(ctx context.Context, apply func([]byte) error) error {
+	var operation error
+	e := l.underAuthority(ctx, func(secret []byte, _ time.Time) error { operation = apply(secret); return nil })
+	if e != nil {
+		return e
+	}
+	return operation
 }

@@ -55,6 +55,7 @@ type ConfigReceiver struct {
 	work           *session.WorkSet
 	appliedChanged chan struct{}
 	auth           SyncAuthResult
+	lifecycle      *ClientLease
 	budget         *SyncStagingBudget
 	stage          *syncStage
 	applied        domain.NativeSnapshot
@@ -70,7 +71,7 @@ type ConfigReceiver struct {
 }
 
 func NewConfigReceiver(auth SyncAuthResult, budget *SyncStagingBudget) (*ConfigReceiver, error) {
-	if auth.ConfigSyncVersion != ConfigSyncVersion || auth.ProtocolVersion != ProtocolVersion || !config.ValidID(string(auth.DeviceID)) || validateToken(string(auth.SessionID)) != nil {
+	if (auth.LifecycleVersion != 0 && auth.LifecycleVersion != LifecycleVersion) || auth.ConfigSyncVersion != ConfigSyncVersion || auth.ProtocolVersion != ProtocolVersion || !config.ValidID(string(auth.DeviceID)) || validateToken(string(auth.SessionID)) != nil {
 		return nil, ErrSyncSchema
 	}
 	if budget == nil {
@@ -79,6 +80,9 @@ func NewConfigReceiver(auth SyncAuthResult, budget *SyncStagingBudget) (*ConfigR
 	return &ConfigReceiver{appliedChanged: make(chan struct{}), work: session.NewWorkSet(4 * 1024), auth: auth, budget: budget, now: time.Now, timeout: SyncTransferTimeout, readyRequests: make(chan syncReadyRequest, 1), carriers: make(map[*SyncClientCarrier]struct{})}, nil
 }
 func (r *ConfigReceiver) Close() {
+	if r.lifecycle != nil {
+		r.lifecycle.Revoke(nil)
+	}
 	r.mu.Lock()
 	r.closeLocked()
 	revoked := r.work.Collect(func(domain.WorkScope) bool { return true })
@@ -105,16 +109,7 @@ func (r *ConfigReceiver) closeLocked() {
 	r.signalAppliedLocked()
 	r.ready = syncTuple{}
 }
-func (r *ConfigReceiver) Snapshot() (domain.NativeSnapshot, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed || r.applied.Revision == 0 {
-		return domain.NativeSnapshot{}, false
-	}
-	s := r.applied
-	s.Tunnels = append([]domain.NativeTunnel(nil), s.Tunnels...)
-	return s, true
-}
+func (r *ConfigReceiver) Snapshot() (domain.NativeSnapshot, bool) { return r.observeSnapshot(false) }
 func (r *ConfigReceiver) deadline() time.Time {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -130,11 +125,11 @@ func (r *ConfigReceiver) ackSent() {
 	r.mu.Unlock()
 }
 
-func minimumTransferBytes(begin syncFrame, actual int) (uint64, error) {
+func minimumTransferBytesFor(begin syncFrame, actual int, lifecycle int) (uint64, error) {
 	end := scopedFrame("config_end", begin.tuple())
 	end.Count = begin.Count
 	end.TotalBytes = begin.TotalBytes
-	endBytes, err := encodeSyncPayload(end)
+	endBytes, err := encodeNegotiatedSyncPayload(end, lifecycle)
 	if err != nil {
 		return 0, err
 	}
@@ -142,7 +137,7 @@ func minimumTransferBytes(begin syncFrame, actual int) (uint64, error) {
 	index := uint16(0)
 	entry.Index = &index
 	entry.Tunnel = &syncTunnel{ID: "a", Protocol: domain.TunnelProtocolTCP, TargetAddr: "a:1"}
-	entryBytes, err := encodeSyncPayload(entry)
+	entryBytes, err := encodeNegotiatedSyncPayload(entry, lifecycle)
 	if err != nil {
 		return 0, err
 	}
@@ -194,7 +189,7 @@ func (r *ConfigReceiver) acceptAt(f syncFrame, size int, started time.Time) (ack
 		if r.stage != nil || !r.ackDeadline.IsZero() || f.tuple().TransferID <= r.lastTransfer || f.tuple().Revision <= r.applied.Revision {
 			return nil, ErrSyncStale
 		}
-		minimum, e := minimumTransferBytes(f, size)
+		minimum, e := minimumTransferBytesFor(f, size, r.auth.LifecycleVersion)
 		if e != nil || minimum > uint64(*f.TotalBytes) {
 			return nil, ErrSyncTransfer
 		}
@@ -286,4 +281,8 @@ func (r *ConfigReceiver) WaitApplied(ctx context.Context, after domain.ConfigRev
 		case <-changed:
 		}
 	}
+}
+
+func minimumTransferBytes(begin syncFrame, actual int) (uint64, error) {
+	return minimumTransferBytesFor(begin, actual, 0)
 }

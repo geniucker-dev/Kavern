@@ -25,6 +25,7 @@ type SyncAuthChallenge struct {
 type SyncAuthResult struct {
 	AuthResult
 	ConfigSyncVersion int
+	LifecycleVersion  int
 }
 
 // These opt-in entry points do not change the current command transport. The
@@ -104,6 +105,25 @@ func VerifySyncCarrierBind(secret []byte, response string, id domain.SessionID, 
 // registrationMu makes replacement and protocol-state publication mutually
 // exclusive. The callback must not perform I/O or call authentication methods.
 func (s *AuthService) withSyncSession(ctx context.Context, auth SyncAuthResult, apply func() error) error {
+	if auth.LifecycleVersion == LifecycleVersion {
+		entry, ok := s.registry.lookup(auth.SessionID)
+		if !ok || entry.deviceID != auth.DeviceID || entry.session.lifecycleVersion != LifecycleVersion {
+			return ErrSessionNotFound
+		}
+		lease := entry.session.serverLease()
+		if lease == nil {
+			return ErrSessionClosed
+		}
+		return lease.withAdmission(ctx, func(_ []byte) error {
+			if auth.ConfigSyncVersion != ConfigSyncVersion || auth.ProtocolVersion != ProtocolVersion {
+				return ErrSyncSchema
+			}
+			return apply()
+		})
+	}
+	if auth.LifecycleVersion != 0 {
+		return ErrSyncSchema
+	}
 	s.registrationMu.Lock()
 	defer s.registrationMu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -116,7 +136,7 @@ func (s *AuthService) withSyncSession(ctx context.Context, auth SyncAuthResult, 
 	if !ok || entry.deviceID != auth.DeviceID {
 		return ErrSessionNotFound
 	}
-	if entry.session.syncVersion != ConfigSyncVersion {
+	if entry.session.syncVersion != ConfigSyncVersion || entry.session.lifecycleVersion != auth.LifecycleVersion {
 		return ErrSyncSchema
 	}
 	if entry.session.closed() || !s.now().Before(entry.session.expiresAt) {

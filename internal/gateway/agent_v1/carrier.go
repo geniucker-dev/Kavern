@@ -21,7 +21,7 @@ func (s *AuthService) bindCarrier(ctx context.Context, req CarrierBindRequest, s
 	if !ok {
 		return CarrierBinding{}, ErrSessionNotFound
 	}
-	if entry.session.syncVersion != syncVersion {
+	if entry.session.syncVersion != syncVersion || entry.session.lifecycleVersion != 0 {
 		return CarrierBinding{}, ErrSyncSchema
 	}
 	if entry.session.Protocol() != domain.AgentProtocolKAPv1 {

@@ -149,6 +149,11 @@ func (r *ConfigReceiver) currentTupleLocked() syncTuple {
 	return syncTuple{r.auth.DeviceID, r.auth.SessionID, r.applied.Revision, r.lastTransfer}
 }
 func (r *ConfigReceiver) RequestReady(ctx context.Context) error {
+	if r.lifecycle != nil {
+		if e := r.lifecycle.Valid(); e != nil {
+			return e
+		}
+	}
 	r.mu.Lock()
 	if r.closed || r.applied.Revision == 0 || r.stage != nil || !r.ackDeadline.IsZero() {
 		r.mu.Unlock()

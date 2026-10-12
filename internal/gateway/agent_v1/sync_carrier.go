@@ -27,17 +27,18 @@ func (r SyncCarrierRequest) tuple() syncTuple {
 }
 
 type syncCarrierFrame struct {
-	Version     string                `json:"version"`
-	Role        string                `json:"role"`
-	Type        string                `json:"type"`
-	SyncVersion int                   `json:"config_sync_version"`
-	DeviceID    domain.DeviceID       `json:"device_id"`
-	SessionID   domain.SessionID      `json:"session_id"`
-	Revision    domain.ConfigRevision `json:"revision"`
-	TransferID  domain.ConfigRevision `json:"transfer_id"`
-	Nonce       string                `json:"carrier_nonce,omitempty"`
-	Response    string                `json:"response_hmac,omitempty"`
-	Policy      *syncPolicy           `json:"policy,omitempty"`
+	Version          string                `json:"version"`
+	Role             string                `json:"role"`
+	Type             string                `json:"type"`
+	SyncVersion      int                   `json:"config_sync_version"`
+	LifecycleVersion int                   `json:"lifecycle_version,omitempty"`
+	DeviceID         domain.DeviceID       `json:"device_id"`
+	SessionID        domain.SessionID      `json:"session_id"`
+	Revision         domain.ConfigRevision `json:"revision"`
+	TransferID       domain.ConfigRevision `json:"transfer_id"`
+	Nonce            string                `json:"carrier_nonce,omitempty"`
+	Response         string                `json:"response_hmac,omitempty"`
+	Policy           *syncPolicy           `json:"policy,omitempty"`
 }
 
 func (f syncCarrierFrame) tuple() syncTuple {
@@ -49,16 +50,28 @@ func decodeSyncCarrier(data []byte) (syncCarrierFrame, error) {
 		return f, ErrSyncTransfer
 	}
 	keys := []string{"version", "role", "type", "config_sync_version", "device_id", "session_id", "revision", "transfer_id"}
+	if f.LifecycleVersion != 0 {
+		if f.LifecycleVersion != LifecycleVersion || len(data) > MaxLifecycleFrameBytes {
+			return f, ErrLifecycle
+		}
+		keys = append(keys, "lifecycle_version")
+	}
 	switch f.Type {
 	case "carrier_bind":
 		keys = append(keys, "carrier_nonce", "response_hmac")
 	case "carrier_ok":
 		keys = append(keys, "policy")
+		if f.LifecycleVersion != 0 {
+			keys = append(keys, "carrier_nonce", "response_hmac")
+		}
 	default:
 		return f, ErrSyncTransfer
 	}
 	if !exactKeys(data, keys...) || f.Version != ProtocolVersion || f.Role != TransportRoleDataCarrier || f.SyncVersion != ConfigSyncVersion || !config.ValidID(string(f.DeviceID)) || validateToken(string(f.SessionID)) != nil || f.Revision == 0 || f.TransferID == 0 {
 		return f, ErrSyncTransfer
+	}
+	if f.LifecycleVersion != 0 && (!lifecycleToken(string(f.SessionID)) || !lifecycleToken(f.Nonce) || !lifecycleMAC(f.Response)) {
+		return f, ErrLifecycle
 	}
 	if f.Type == "carrier_bind" {
 		if validateToken(f.Nonce) != nil || f.Response == "" {
@@ -170,18 +183,34 @@ func (s *AuthService) serveSyncCarrier(ctx context.Context, conn *tls.Conn, firs
 		return ErrSyncTransfer
 	}
 	request := CarrierBindRequest{SessionID: first.SessionID, CarrierNonce: first.Nonce, ResponseHMAC: first.Response}
-	if _, err := s.BindSyncCarrier(ctx, request, ConfigSyncVersion); err != nil {
+	if err := s.bindNegotiatedCarrier(ctx, first, request); err != nil {
 		return err
 	}
-	auth := SyncAuthResult{AuthResult: AuthResult{DeviceID: first.DeviceID, SessionID: first.SessionID, ProtocolVersion: ProtocolVersion}, ConfigSyncVersion: ConfigSyncVersion}
+	auth := SyncAuthResult{AuthResult: AuthResult{DeviceID: first.DeviceID, SessionID: first.SessionID, ProtocolVersion: ProtocolVersion}, ConfigSyncVersion: ConfigSyncVersion, LifecycleVersion: first.LifecycleVersion}
 	session, _, snapshot, err := s.waitSyncApplication(ctx, auth, first.tuple())
 	if err != nil {
 		return err
 	}
 	reply := first
 	reply.Type = "carrier_ok"
-	reply.Nonce = ""
-	reply.Response = ""
+	if first.LifecycleVersion == 0 {
+		reply.Nonce = ""
+		reply.Response = ""
+	} else {
+		entry, ok := s.registry.lookup(first.SessionID)
+		if !ok {
+			return ErrSessionClosed
+		}
+		if err = entry.session.serverLease().withAdmission(ctx, func(secret []byte) error {
+			f, e := SignLifecycleFrame(secret, carrierLifecycleFrame(reply))
+			if e == nil {
+				reply.Response = f.HMAC
+			}
+			return e
+		}); err != nil {
+			return err
+		}
+	}
 	reply.Policy = wirePolicy(snapshot.Policy)
 	if err = writeSyncCarrier(conn, reply); err != nil {
 		return err
@@ -276,6 +305,20 @@ func (r *ConfigReceiver) BindSyncCarrierTLS(ctx context.Context, conn *tls.Conn,
 		return nil, err
 	}
 	request := syncCarrierFrame{Version: ProtocolVersion, Role: TransportRoleDataCarrier, Type: "carrier_bind", SyncVersion: ConfigSyncVersion, DeviceID: tuple.DeviceID, SessionID: tuple.SessionID, Revision: tuple.Revision, TransferID: tuple.TransferID, Nonce: nonce, Response: proof}
+	request.LifecycleVersion = r.auth.LifecycleVersion
+	if request.LifecycleVersion != 0 {
+		if r.lifecycle == nil {
+			return nil, ErrLifecycle
+		}
+		if err = r.lifecycle.Valid(); err != nil {
+			return nil, err
+		}
+		signed, e := SignLifecycleFrame(secret, carrierLifecycleFrame(request))
+		if e != nil {
+			return nil, e
+		}
+		request.Response = signed.HMAC
+	}
 	if err = writeSyncCarrier(conn, request); err != nil {
 		return nil, err
 	}
@@ -283,8 +326,19 @@ func (r *ConfigReceiver) BindSyncCarrierTLS(ctx context.Context, conn *tls.Conn,
 	if err != nil {
 		return nil, err
 	}
-	if reply.Type != "carrier_ok" || reply.tuple() != tuple || reply.Policy.domain() != policy {
+	if reply.Type != "carrier_ok" || reply.LifecycleVersion != r.auth.LifecycleVersion || reply.tuple() != tuple || reply.Policy.domain() != policy {
 		return nil, ErrSyncStale
+	}
+	if r.auth.LifecycleVersion != 0 {
+		if reply.Nonce != nonce {
+			return nil, ErrLifecycle
+		}
+		if err = VerifyLifecycleFrame(secret, carrierLifecycleFrame(reply)); err != nil {
+			return nil, err
+		}
+		if err = r.lifecycle.Valid(); err != nil {
+			return nil, err
+		}
 	}
 	if err = conn.SetDeadline(time.Time{}); err != nil {
 		return nil, err
@@ -310,4 +364,32 @@ func (r *ConfigReceiver) BindSyncCarrierTLS(ctx context.Context, conn *tls.Conn,
 	r.mu.Unlock()
 	success = true
 	return client, nil
+}
+
+func carrierLifecycleFrame(f syncCarrierFrame) LifecycleFrame {
+	v := lifecycleFrame(f.Type, f.DeviceID, f.SessionID)
+	v.Role = TransportRoleDataCarrier
+	v.CarrierNonce = f.Nonce
+	v.HMAC = f.Response
+	return v
+}
+func (s *AuthService) bindNegotiatedCarrier(ctx context.Context, f syncCarrierFrame, request CarrierBindRequest) error {
+	if f.LifecycleVersion == 0 {
+		_, e := s.BindSyncCarrier(ctx, request, ConfigSyncVersion)
+		return e
+	}
+	entry, ok := s.registry.lookup(f.SessionID)
+	if !ok || entry.deviceID != f.DeviceID || entry.session.lifecycleVersion != LifecycleVersion {
+		return ErrSessionNotFound
+	}
+	lease := entry.session.serverLease()
+	if lease == nil {
+		return ErrSessionClosed
+	}
+	return lease.withAdmission(ctx, func(secret []byte) error {
+		if e := VerifyLifecycleFrame(secret, carrierLifecycleFrame(f)); e != nil {
+			return e
+		}
+		return s.registry.markNonceUsed(f.SessionID, f.Nonce)
+	})
 }

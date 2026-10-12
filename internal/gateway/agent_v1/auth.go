@@ -15,12 +15,13 @@ type DeviceSecretStore interface {
 }
 
 type AuthService struct {
-	store        DeviceSecretStore
-	sessions     session.SessionManager
-	registry     *sessionRegistry
-	now          func() time.Time
-	ttl          time.Duration
-	newSessionID func() (domain.SessionID, error)
+	store          DeviceSecretStore
+	sessions       session.SessionManager
+	registry       *sessionRegistry
+	now            func() time.Time
+	ttl            time.Duration
+	newSessionID   func() (domain.SessionID, error)
+	lifecycleClock LifecycleClock
 
 	challengesMu sync.Mutex
 	challenges   map[string]challengeState
@@ -36,24 +37,34 @@ type challengeState struct {
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
 	SyncVersion int
+	Lifecycle   *LifecycleFrame
 }
 
 type Option func(*AuthService)
 
 func NewAuthService(store DeviceSecretStore, sessions session.SessionManager, opts ...Option) *AuthService {
 	svc := &AuthService{
-		store:        store,
-		sessions:     sessions,
-		registry:     newSessionRegistry(),
-		now:          time.Now,
-		ttl:          2 * time.Minute,
-		newSessionID: GenerateSessionID,
-		challenges:   make(map[string]challengeState),
+		store:          store,
+		sessions:       sessions,
+		registry:       newSessionRegistry(),
+		now:            time.Now,
+		lifecycleClock: realLifecycleClock{},
+		ttl:            2 * time.Minute,
+		newSessionID:   GenerateSessionID,
+		challenges:     make(map[string]challengeState),
 	}
 	for _, opt := range opts {
 		opt(svc)
 	}
 	return svc
+}
+
+func WithLifecycleClock(clock LifecycleClock) Option {
+	return func(s *AuthService) {
+		if clock != nil {
+			s.lifecycleClock = clock
+		}
+	}
 }
 
 func WithNow(now func() time.Time) Option {
@@ -167,7 +178,14 @@ func (s *AuthService) completeAuth(ctx context.Context, req AuthFinishRequest, s
 	if err != nil {
 		return AuthResult{}, err
 	}
-	if syncVersion == ConfigSyncVersion {
+	if state.Lifecycle != nil {
+		if req.ResponseHMAC != state.Lifecycle.HMAC {
+			return AuthResult{}, ErrAuthFailed
+		}
+		if err := VerifyLifecycleFrame(secret, *state.Lifecycle); err != nil {
+			return AuthResult{}, err
+		}
+	} else if syncVersion == ConfigSyncVersion {
 		if err := VerifySyncAuthResponse(secret, req.ResponseHMAC, device.ID, state.ClientNonce, state.ServerNonce, syncVersion); err != nil {
 			return AuthResult{}, err
 		}
@@ -180,13 +198,20 @@ func (s *AuthService) completeAuth(ctx context.Context, req AuthFinishRequest, s
 	}
 	agentSession := newAgentSession(sessionID, device.ID)
 	agentSession.syncVersion = syncVersion
+	if state.Lifecycle != nil {
+		agentSession.lifecycleVersion = LifecycleVersion
+	}
 	agentSession.now = s.now
 	agentSession.expiresAt = s.now().Add(time.Hour)
 	s.registrationMu.Lock()
 	var replaced session.AgentSession
 	var owned *session.WorkLease
 	publish := func(current domain.Device, currentSecret []byte) error {
-		if syncVersion == ConfigSyncVersion {
+		if state.Lifecycle != nil {
+			if err := VerifyLifecycleFrame(currentSecret, *state.Lifecycle); err != nil {
+				return err
+			}
+		} else if syncVersion == ConfigSyncVersion {
 			if err := VerifySyncAuthResponse(currentSecret, req.ResponseHMAC, current.ID, state.ClientNonce, state.ServerNonce, syncVersion); err != nil {
 				return err
 			}
@@ -218,6 +243,8 @@ func (s *AuthService) completeAuth(ctx context.Context, req AuthFinishRequest, s
 		AuthenticatePublication(context.Context, domain.DeviceID, func(domain.Device, []byte) error) (*session.WorkLease, error)
 	}); ok {
 		owned, err = owner.AuthenticatePublication(ctx, device.ID, publish)
+	} else if state.Lifecycle != nil {
+		err = ErrLifecycle
 	} else {
 		err = s.registry.reserve(sessionID, agentSession)
 		if err == nil {
@@ -235,11 +262,46 @@ func (s *AuthService) completeAuth(ctx context.Context, req AuthFinishRequest, s
 		return AuthResult{}, err
 	}
 	if owned != nil {
+		if state.Lifecycle != nil {
+			owner, ok := s.store.(LifecycleOwner)
+			if !ok {
+				_ = agentSession.Close(context.Background())
+				owned.Finish()
+				s.registry.remove(sessionID)
+				_ = s.sessions.Detach(context.Background(), sessionID)
+				return AuthResult{}, ErrLifecycle
+			}
+			authority, e := NewOwnedLifecycleAuthority(&s.registrationMu, owner, s.sessions, LifecycleScope{device.ID, sessionID}, owned.Context)
+			if e == nil {
+				var lease *ServerLease
+				var grant LifecycleFrame
+				lease, grant, e = NewServerLease(ctx, LifecycleScope{device.ID, sessionID}, *state.Lifecycle, authority, s.lifecycleClock, func() { _ = s.CloseSession(context.Background(), sessionID) })
+				if e == nil {
+					agentSession.mu.Lock()
+					agentSession.lifecycle = lease
+					agentSession.lifecycleGrant = grant
+					agentSession.mu.Unlock()
+				}
+			}
+			if e != nil {
+				_ = agentSession.Close(context.Background())
+				owned.Finish()
+				s.registry.remove(sessionID)
+				_ = s.sessions.Detach(context.Background(), sessionID)
+				if replaced != nil {
+					_ = replaced.Close(context.Background())
+				}
+				return AuthResult{}, e
+			}
+		}
 		go func() {
 			defer owned.Finish()
 			select {
 			case <-owned.Context.Done():
 			case <-agentSession.Done():
+			}
+			if lease := agentSession.serverLease(); lease != nil {
+				lease.Revoke(nil)
 			}
 			// Close joins any concurrent pool cleanup before releasing ownership.
 			_ = agentSession.Close(context.Background())

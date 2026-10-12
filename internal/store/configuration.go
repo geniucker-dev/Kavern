@@ -76,7 +76,10 @@ func projectSnapshot(c domain.DeviceConfiguration) (domain.NativeSnapshot, error
 			}
 		}
 	}
-	return out, config.ValidateNativeSnapshot(out)
+	if err := config.ValidateNativeSnapshot(out); err != nil {
+		return out, err
+	}
+	return out, config.ValidateNativeDeliveryCapacity(out)
 }
 
 // cloneLocked copies the complete state; its owner must hold s.mu. It includes

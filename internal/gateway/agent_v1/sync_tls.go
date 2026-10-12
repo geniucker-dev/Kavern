@@ -74,6 +74,19 @@ func (s *AuthService) serveSyncTransport(ctx context.Context, conn *tls.Conn, so
 		Role string `json:"role"`
 	}
 	_ = json.Unmarshal(payload, &role)
+	if hasLifecycle(payload) && role.Role != TransportRoleDataCarrier {
+		first, e := DecodeLifecycleFrame(payload)
+		if e != nil {
+			return e
+		}
+		return s.serveLifecycleControl(ctx, handshakeCtx, conn, first, source, budget)
+	}
+	if allowCarrier && !hasLifecycle(payload) {
+		reject := lifecycleFrame("auth_reject", "upgrade-required", "")
+		reject.Code = "upgrade_required"
+		_ = WriteLifecycleFrame(conn, reject)
+		return ErrSyncSchema
+	}
 	if allowCarrier && role.Role == TransportRoleDataCarrier {
 		first, err := decodeSyncCarrier(payload)
 		if err != nil {
@@ -138,11 +151,11 @@ func (s *AuthService) serveSyncTransport(ctx context.Context, conn *tls.Conn, so
 	return control.Run(ctx, syncTLSConnection{conn})
 }
 
-// AuthenticateSyncControl verifies TLS trust, schema/challenge identity and the
+// AuthenticateSyncControl requires lifecycle v1 and verifies TLS trust and the
 // authenticated result before returning a fresh receiver. Run must be called
 // once on the returned owned connection to drive snapshot installation/ACK.
 func AuthenticateSyncControl(ctx context.Context, conn *tls.Conn, device domain.DeviceID, secret []byte, budget *SyncStagingBudget) (*ConfigReceiver, net.Conn, error) {
-	return authenticateSyncControl(ctx, conn, device, secret, budget, time.Now().Add(syncHandshakeTimeout))
+	return authenticateLifecycleControl(ctx, conn, device, secret, budget, time.Now().Add(syncHandshakeTimeout), NewLifecycleClock())
 }
 func authenticateSyncControl(ctx context.Context, conn *tls.Conn, device domain.DeviceID, secret []byte, budget *SyncStagingBudget, deadline time.Time) (*ConfigReceiver, net.Conn, error) {
 	if conn == nil || len(secret) != 32 || !config.ValidID(string(device)) {
@@ -289,5 +302,5 @@ func openBootstrapWithMaterial(ctx context.Context, cfg config.NativeBootstrap, 
 		trust.ServerName = host
 	}
 	conn := tls.Client(connected, trust)
-	return authenticateSyncControl(ctx, conn, domain.DeviceID(cfg.DeviceID), secret, nil, deadline)
+	return authenticateLifecycleControl(ctx, conn, domain.DeviceID(cfg.DeviceID), secret, nil, deadline, NewLifecycleClock())
 }

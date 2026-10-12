@@ -274,7 +274,7 @@ func TestSyncTLSMixedVersionsRejectBeforeReplacingCurrentSession(t *testing.T) {
 }
 
 func TestSyncTLSClientVerifiesChallengeSchemaAndDeviceBeforeProof(t *testing.T) {
-	for _, kind := range []string{"schema", "device"} {
+	for _, kind := range []string{"schema", "device", "old"} {
 		t.Run(kind, func(t *testing.T) {
 			serverTrust, clientTrust, _ := syncTLSFixture(t)
 			left, right := net.Pipe()
@@ -289,22 +289,31 @@ func TestSyncTLSClientVerifiesChallengeSchemaAndDeviceBeforeProof(t *testing.T) 
 					peerDone <- err
 					return
 				}
-				start, err := readSyncAuth(serverConn)
+				start, err := ReadLifecycleFrame(serverConn)
 				if err != nil {
 					peerDone <- err
 					return
 				}
-				challenge := authFrame("auth_challenge")
+				challenge := lifecycleFrame("auth_challenge", start.DeviceID, "")
+				challenge.ClientNonce = start.ClientNonce
+				challenge.LeaseMillis = LifecycleLeaseMillis
+				challenge.ProofMillis = LifecycleAuthMillis
 				challenge.DeviceID = start.DeviceID
 				challenge.ServerNonce = domainNonce(t)
 				challenge.ChallengeID = domainNonce(t)
 				if kind == "schema" {
 					version := 2
-					challenge.SyncVersion = &version
-				} else {
+					challenge.SyncVersion = version
+				} else if kind == "device" {
 					challenge.DeviceID = "other"
 				}
 				data, _ := json.Marshal(challenge)
+				if kind == "old" {
+					var f map[string]json.RawMessage
+					_ = json.Unmarshal(data, &f)
+					delete(f, "lifecycle_version")
+					data, _ = json.Marshal(f)
+				}
 				var prefix [4]byte
 				binary.BigEndian.PutUint32(prefix[:], uint32(len(data)))
 				_, err = serverConn.Write(prefix[:])
@@ -315,7 +324,7 @@ func TestSyncTLSClientVerifiesChallengeSchemaAndDeviceBeforeProof(t *testing.T) 
 					peerDone <- err
 					return
 				}
-				_, err = readSyncAuth(serverConn)
+				_, err = ReadLifecycleFrame(serverConn)
 				peerDone <- err
 			}()
 			if _, _, err := AuthenticateSyncControl(ctx, clientConn, "device-1", bytes.Repeat([]byte{0x44}, 32), nil); err == nil {

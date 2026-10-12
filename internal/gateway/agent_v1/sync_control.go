@@ -3,9 +3,12 @@ package agent_v1
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,25 +26,27 @@ func defaultSyncTiming() syncTiming {
 	return syncTiming{SyncTransferTimeout, SyncWriteTimeout, 30 * time.Second, 10 * time.Second}
 }
 
-// ConfigServer is an opt-in control core, not a command transport. Run requires
-// the already verified TLS control connection that produced auth. Tests use Go
-// net.Pipe peers; the current ServeTransport/RunAgent do not invoke this API.
+// ConfigServer runs the authenticated snapshot/control coordinator. Renewable
+// command sessions retain their exact session lease; schema-only cores remain
+// available for standalone protocol tests and keep their absolute timeout.
 type ConfigServer struct {
-	service *AuthService
-	auth    SyncAuthResult
-	source  NativeSnapshotSource
-	budget  *SyncStagingBudget
-	updates chan struct{}
-	mu      sync.Mutex
-	running bool
-	applied domain.ConfigRevision
-	timing  syncTiming
+	service   *AuthService
+	auth      SyncAuthResult
+	source    NativeSnapshotSource
+	budget    *SyncStagingBudget
+	updates   chan struct{}
+	mu        sync.Mutex
+	running   bool
+	applied   domain.ConfigRevision
+	timing    syncTiming
+	lifecycle *ServerLease
 }
 
 func (s *AuthService) NewConfigServer(ctx context.Context, auth SyncAuthResult, source NativeSnapshotSource, budget *SyncStagingBudget) (*ConfigServer, error) {
 	if source == nil {
 		return nil, ErrInvalidInput
 	}
+	var lease *ServerLease
 	if err := s.withSyncSession(ctx, auth, func() error {
 		entry, ok := s.registry.lookup(auth.SessionID)
 		if !ok {
@@ -52,6 +57,7 @@ func (s *AuthService) NewConfigServer(ctx context.Context, auth SyncAuthResult, 
 		if entry.session.syncData != nil {
 			return ErrInvalidInput
 		}
+		lease = entry.session.lifecycle
 		entry.session.syncData = &syncSessionData{service: s, auth: auth, source: source, changed: make(chan struct{})}
 		return nil
 	}); err != nil {
@@ -60,7 +66,7 @@ func (s *AuthService) NewConfigServer(ctx context.Context, auth SyncAuthResult, 
 	if budget == nil {
 		budget = processSyncBudget
 	}
-	return &ConfigServer{service: s, auth: auth, source: source, budget: budget, updates: make(chan struct{}, 1), timing: defaultSyncTiming()}, nil
+	return &ConfigServer{service: s, auth: auth, source: source, budget: budget, updates: make(chan struct{}, 1), timing: defaultSyncTiming(), lifecycle: lease}, nil
 }
 
 // Notifications are wakeups. The owned source is re-read and remains truth.
@@ -77,10 +83,11 @@ func (s *ConfigServer) AppliedRevision(ctx context.Context) (domain.ConfigRevisi
 }
 
 type syncRead struct {
-	frame   syncFrame
-	bytes   int
-	err     error
-	started time.Time
+	frame     syncFrame
+	lifecycle *LifecycleFrame
+	bytes     int
+	err       error
+	started   time.Time
 }
 type syncFlight struct {
 	plan     *syncPlan
@@ -127,9 +134,13 @@ func (s *ConfigServer) Run(ctx context.Context, conn net.Conn) error {
 		_ = conn.Close()
 		return ErrSessionNotFound
 	}
-	// Preserve the existing absolute native session lifetime, including when
-	// the control peer is idle and no callback is currently checking expiry.
-	sessionCtx, cancel := context.WithTimeout(ctx, entry.session.expiresAt.Sub(s.service.now()))
+	// Negotiated lifecycle owns expiry. Standalone schema-only sessions retain
+	// their historical absolute session timeout.
+	sessionCtx, cancel := context.WithCancel(ctx)
+	if s.auth.LifecycleVersion == 0 {
+		cancel()
+		sessionCtx, cancel = context.WithTimeout(ctx, entry.session.expiresAt.Sub(s.service.now()))
+	}
 	defer cancel()
 	return runConfigControl(sessionCtx, conn, s, nil, entry.session.Done(), s.timing)
 }
@@ -138,7 +149,7 @@ func (r *ConfigReceiver) Run(ctx context.Context, conn net.Conn) error {
 		return ErrInvalidInput
 	}
 	r.mu.Lock()
-	if r.running || r.closed {
+	if r.running || r.closed || (r.auth.LifecycleVersion != 0 && r.lifecycle == nil) {
 		r.mu.Unlock()
 		return ErrSessionClosed
 	}
@@ -147,7 +158,11 @@ func (r *ConfigReceiver) Run(ctx context.Context, conn net.Conn) error {
 	return runConfigControl(ctx, conn, nil, r, nil, defaultSyncTiming())
 }
 
-func syncReader(ctx context.Context, conn net.Conn, inbox chan<- syncRead, done chan<- struct{}, timing syncTiming) {
+func syncReader(ctx context.Context, conn net.Conn, inbox chan<- syncRead, done chan<- struct{}, timing syncTiming, negotiated ...int) {
+	lifecycle := 0
+	if len(negotiated) > 0 {
+		lifecycle = negotiated[0]
+	}
 	defer close(done)
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(timing.idle)); err != nil {
@@ -169,6 +184,7 @@ func syncReader(ctx context.Context, conn net.Conn, inbox chan<- syncRead, done 
 			_, err = io.ReadFull(conn, prefix[1:])
 		}
 		var f syncFrame
+		var life *LifecycleFrame
 		size := 0
 		if err == nil {
 			n := binary.BigEndian.Uint32(prefix[:])
@@ -178,14 +194,28 @@ func syncReader(ctx context.Context, conn net.Conn, inbox chan<- syncRead, done 
 				data := make([]byte, int(n))
 				_, err = io.ReadFull(conn, data)
 				if err == nil {
-					f, err = decodeSyncPayload(data)
+					if lifecycle == LifecycleVersion {
+						var kind struct {
+							Type string `json:"type"`
+						}
+						_ = json.Unmarshal(data, &kind)
+						if strings.HasPrefix(kind.Type, "renew_") {
+							var v LifecycleFrame
+							v, err = DecodeLifecycleFrame(data)
+							life = &v
+						} else {
+							f, err = decodeLifecycleSyncPayload(data)
+						}
+					} else {
+						f, err = decodeSyncPayload(data)
+					}
 					size = len(data)
 				}
 			}
 		}
 		timer := time.NewTimer(timing.write)
 		select {
-		case inbox <- syncRead{frame: f, bytes: size, err: err, started: started}:
+		case inbox <- syncRead{frame: f, lifecycle: life, bytes: size, err: err, started: started}:
 		case <-ctx.Done():
 			timer.Stop()
 			return
@@ -220,7 +250,40 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 	stop := context.AfterFunc(ctx, func() { defer close(callbackDone); _ = conn.Close() })
 	inbox := make(chan syncRead, syncControlQueue)
 	readerDone := make(chan struct{})
-	go syncReader(ctx, conn, inbox, readerDone, timing)
+	var lifeVersion int
+	var serverLease *ServerLease
+	var clientLease *ClientLease
+	var lifeWake, lifeDone <-chan struct{}
+	if server != nil {
+		lifeVersion = server.auth.LifecycleVersion
+		if lifeVersion != 0 {
+			serverLease = server.lifecycle
+			lifeWake = serverLease.Wake()
+			lifeDone = serverLease.Done()
+		}
+	} else {
+		lifeVersion = receiver.auth.LifecycleVersion
+		clientLease = receiver.lifecycle
+		if clientLease != nil {
+			lifeWake = clientLease.Wake()
+			lifeDone = clientLease.Done()
+		}
+	}
+	if lifeVersion != 0 && serverLease == nil && clientLease == nil {
+		cancel()
+		_ = conn.Close()
+		return ErrLifecycle
+	}
+	leaseMonitorDone := make(chan struct{})
+	go func() {
+		defer close(leaseMonitorDone)
+		select {
+		case <-lifeDone:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	go syncReader(ctx, conn, inbox, readerDone, timing, lifeVersion)
 	defer func() {
 		cancel()
 		_ = conn.Close()
@@ -229,6 +292,13 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 		}
 		<-readerDone
 		<-monitorDone
+		<-leaseMonitorDone
+		if serverLease != nil {
+			serverLease.Revoke(nil)
+		}
+		if clientLease != nil {
+			clientLease.Revoke(nil)
+		}
 		if receiver != nil {
 			receiver.Close()
 		}
@@ -299,7 +369,10 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 		if err := conn.SetWriteDeadline(deadline); err != nil {
 			return err
 		}
-		err := writeSyncFrame(conn, f)
+		data, err := encodeNegotiatedSyncPayload(f, lifeVersion)
+		if err == nil {
+			err = writeControlPayload(conn, data)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -309,6 +382,34 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 			}
 		}
 		return err
+	}
+	writeLife := func(f *LifecycleFrame) error {
+		if f == nil {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := conn.SetWriteDeadline(time.Now().Add(timing.write)); err != nil {
+			return err
+		}
+		return WriteLifecycleFrame(conn, *f)
+	}
+	pollLife := func() error {
+		var f *LifecycleFrame
+		var e error
+		if serverLease != nil {
+			f, e = serverLease.Poll(ctx)
+		} else if clientLease != nil {
+			f, e = clientLease.Poll()
+		}
+		if errors.Is(e, ErrLifecycleStale) {
+			return nil
+		}
+		if e != nil {
+			return e
+		}
+		return writeLife(f)
 	}
 	startLatest := func() error {
 		if server == nil || flight != nil {
@@ -369,6 +470,34 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 	handle := func(event syncRead) error {
 		if event.err != nil {
 			return event.err
+		}
+		if event.lifecycle != nil {
+			var reply *LifecycleFrame
+			var e error
+			if serverLease != nil {
+				if event.lifecycle.Type != "renew_response" {
+					return ErrLifecycle
+				}
+				reply, e = serverLease.AcceptProof(ctx, *event.lifecycle)
+			} else if clientLease != nil {
+				switch event.lifecycle.Type {
+				case "renew_challenge":
+					reply, e = clientLease.Challenge(*event.lifecycle)
+				case "renew_ok":
+					e = clientLease.Grant(*event.lifecycle)
+				default:
+					return ErrLifecycle
+				}
+			} else {
+				return ErrLifecycle
+			}
+			if errors.Is(e, ErrLifecycleStale) {
+				return nil
+			}
+			if e != nil {
+				return e
+			}
+			return writeLife(reply)
 		}
 		f := event.frame
 		if f.DeviceID != auth.DeviceID || f.SessionID != auth.SessionID {
@@ -450,6 +579,14 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 	timer.Stop()
 	defer timer.Stop()
 	for {
+		if clientLease != nil {
+			if e := clientLease.Valid(); e != nil {
+				return e
+			}
+		}
+		if e := pollLife(); e != nil {
+			return e
+		}
 		deadline := phaseDeadline()
 		if !deadline.IsZero() && !time.Now().Before(deadline) {
 			return ErrSyncDeadline
@@ -498,6 +635,12 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 			return ctx.Err()
 		case <-sessionDone:
 			return ErrSessionClosed
+		case <-lifeDone:
+			return ErrLifecycleExpired
+		case <-lifeWake:
+			if e := pollLife(); e != nil {
+				return e
+			}
 		case <-timeout:
 			return ErrSyncDeadline
 		case event := <-inbox:
