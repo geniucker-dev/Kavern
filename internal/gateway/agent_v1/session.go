@@ -11,10 +11,11 @@ import (
 )
 
 type agentSession struct {
-	id        domain.SessionID
-	deviceID  domain.DeviceID
-	expiresAt time.Time
-	now       func() time.Time
+	id          domain.SessionID
+	deviceID    domain.DeviceID
+	syncVersion int
+	expiresAt   time.Time
+	now         func() time.Time
 
 	pool *carrier.Pool
 	done chan struct{}
@@ -48,6 +49,11 @@ func (s *agentSession) OpenStream(ctx context.Context, req domain.StreamOpenRequ
 	if s.closed() || !s.now().Before(s.expiresAt) {
 		_ = s.Close(context.Background())
 		return nil, ErrSessionClosed
+	}
+	// Sync sessions remain unroutable until the later stream-metadata/routing
+	// rollout; Slice B only establishes protocol application facts.
+	if s.syncVersion != 0 {
+		return nil, ErrSyncNotReady
 	}
 	if req.TunnelID == "" {
 		return nil, ErrInvalidInput

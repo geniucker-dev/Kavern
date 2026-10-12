@@ -7,6 +7,10 @@ import (
 )
 
 func (s *AuthService) BindCarrier(ctx context.Context, req CarrierBindRequest) (CarrierBinding, error) {
+	return s.bindCarrier(ctx, req, 0)
+}
+
+func (s *AuthService) bindCarrier(ctx context.Context, req CarrierBindRequest, syncVersion int) (CarrierBinding, error) {
 	if err := ctx.Err(); err != nil {
 		return CarrierBinding{}, err
 	}
@@ -16,6 +20,9 @@ func (s *AuthService) BindCarrier(ctx context.Context, req CarrierBindRequest) (
 	entry, ok := s.registry.lookup(req.SessionID)
 	if !ok {
 		return CarrierBinding{}, ErrSessionNotFound
+	}
+	if entry.session.syncVersion != syncVersion {
+		return CarrierBinding{}, ErrSyncSchema
 	}
 	if entry.session.Protocol() != domain.AgentProtocolKAPv1 {
 		return CarrierBinding{}, ErrSessionNotFound
@@ -38,6 +45,10 @@ func (s *AuthService) BindCarrier(ctx context.Context, req CarrierBindRequest) (
 	}
 	if _, secret, err := s.store.ResolveKAPv1DeviceForAuth(ctx, entry.deviceID); err != nil {
 		return CarrierBinding{}, err
+	} else if syncVersion == ConfigSyncVersion {
+		if err := VerifySyncCarrierBind(secret, req.ResponseHMAC, req.SessionID, entry.deviceID, req.CarrierNonce, syncVersion); err != nil {
+			return CarrierBinding{}, err
+		}
 	} else if err := VerifyCarrierBind(secret, req.ResponseHMAC, req.SessionID, entry.deviceID, req.CarrierNonce, ProtocolVersion, TransportRoleDataCarrier); err != nil {
 		return CarrierBinding{}, err
 	}

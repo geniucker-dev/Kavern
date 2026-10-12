@@ -35,6 +35,7 @@ type challengeState struct {
 	ServerNonce string
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
+	SyncVersion int
 }
 
 type Option func(*AuthService)
@@ -80,6 +81,10 @@ func WithSessionIDGenerator(generate func() (domain.SessionID, error)) Option {
 }
 
 func (s *AuthService) BeginAuth(ctx context.Context, req AuthStartRequest) (AuthChallenge, error) {
+	return s.beginAuth(ctx, req, 0)
+}
+
+func (s *AuthService) beginAuth(ctx context.Context, req AuthStartRequest, syncVersion int) (AuthChallenge, error) {
 	if err := ctx.Err(); err != nil {
 		return AuthChallenge{}, err
 	}
@@ -106,6 +111,7 @@ func (s *AuthService) BeginAuth(ctx context.Context, req AuthStartRequest) (Auth
 		ServerNonce: serverNonce,
 		CreatedAt:   now,
 		ExpiresAt:   expiresAt,
+		SyncVersion: syncVersion,
 	}
 	s.challengesMu.Lock()
 	for id, existing := range s.challenges {
@@ -128,6 +134,10 @@ func (s *AuthService) BeginAuth(ctx context.Context, req AuthStartRequest) (Auth
 }
 
 func (s *AuthService) CompleteAuth(ctx context.Context, req AuthFinishRequest) (AuthResult, error) {
+	return s.completeAuth(ctx, req, 0)
+}
+
+func (s *AuthService) completeAuth(ctx context.Context, req AuthFinishRequest, syncVersion int) (AuthResult, error) {
 	if err := ctx.Err(); err != nil {
 		return AuthResult{}, err
 	}
@@ -143,6 +153,9 @@ func (s *AuthService) CompleteAuth(ctx context.Context, req AuthFinishRequest) (
 	if !ok {
 		return AuthResult{}, ErrChallengeNotFound
 	}
+	if state.SyncVersion != syncVersion {
+		return AuthResult{}, ErrSyncSchema
+	}
 	if req.ResponseHMAC == "" {
 		return AuthResult{}, ErrInvalidInput
 	}
@@ -153,7 +166,11 @@ func (s *AuthService) CompleteAuth(ctx context.Context, req AuthFinishRequest) (
 	if err != nil {
 		return AuthResult{}, err
 	}
-	if err := VerifyAuthResponse(secret, req.ResponseHMAC, device.ID, state.ClientNonce, state.ServerNonce, ProtocolVersion, TransportRoleControl); err != nil {
+	if syncVersion == ConfigSyncVersion {
+		if err := VerifySyncAuthResponse(secret, req.ResponseHMAC, device.ID, state.ClientNonce, state.ServerNonce, syncVersion); err != nil {
+			return AuthResult{}, err
+		}
+	} else if err := VerifyAuthResponse(secret, req.ResponseHMAC, device.ID, state.ClientNonce, state.ServerNonce, ProtocolVersion, TransportRoleControl); err != nil {
 		return AuthResult{}, err
 	}
 	sessionID, err := s.newSessionID()
@@ -161,6 +178,7 @@ func (s *AuthService) CompleteAuth(ctx context.Context, req AuthFinishRequest) (
 		return AuthResult{}, err
 	}
 	agentSession := newAgentSession(sessionID, device.ID)
+	agentSession.syncVersion = syncVersion
 	agentSession.now = s.now
 	agentSession.expiresAt = s.now().Add(time.Hour)
 	s.registrationMu.Lock()
