@@ -1,0 +1,85 @@
+# ADR 0007: Server-owned configuration and native-agent synchronization
+
+## Status and scope
+
+Proposed on 2026-10-12 against `cc19acf4e8730a79db8885918eca070d6823f4a9`. Independent review approved bounded Slice A on 2026-10-12, with the rename/fsync uncertainty clarification below. Later slices remain proposed and unapproved. ADR 0006 continues to describe the running MVP until this proposal is accepted and implemented. Preserve the canonical package layout, current mux backend/framing and performance baseline.
+
+## User requirements
+
+- Kavern is a new tunneling project with its own server, native agent and eventual Web UI; limited NPC compatibility does not make it an NPS rewrite.
+- Business configuration belongs on the server. A native client needs only the server address, device identity/credential reference and trust bootstrap.
+- A User and a Device are distinct. One user can have multiple devices; credentials, including legacy vkeys, belong to devices. Keep `User -> Project -> Device -> Tunnel` without adding enterprise RBAC, organizations, billing or SSO.
+- Native transport uses multiplexing, with control/data separation and bounded carriers; HTTP/2 is not the raw TCP transport.
+- Legacy NPC supports server-configuration mode only and remains regression scope. Existing black-box evidence is the only upstream evidence used here.
+
+These requirements combine the latest direction with user-authored context recovered from the June 19/20 conversation. Frontend framework, visual style and hosting choices were not recovered. The decisions below are proposals, not historical user choices.
+
+## Current code and gaps
+
+`config.Agent.Targets` feeds `TargetMap` in `agent_v1/client.go`; server target metadata cannot currently change native targets. `transport.go` handles authentication, carrier readiness and ping/pong synchronously. Control and stream-metadata frames are capped at 4,096 bytes. State is an exclusively locked, encrypted, atomically replaced file; CLI writes require a daemon restart.
+
+`cmd/kavernd` captures whole Tunnel values in startup-only public handlers and aborts the daemon on listener errors. `MemoryStore.CreateTunnel` overwrites records without removing an old listener index. Router checks a supplied Tunnel's enabled flag and the stored Device but does not reload the Tunnel before routing. Those shortcuts must not become live-update semantics.
+
+## Proposed decisions
+
+### 1. Server authority and durable state
+
+Keep server process settings/TLS bootstrap distinct from desired business state. Persist server-owned native carrier count/limits with each Device configuration so revision covers the complete snapshot; the gateway adapts domain policy into its wire limits. Native eligibility means the Device has a KAPv1 device credential, independent of its current connection. Use the existing native defaults (two carriers, 64 streams/carrier, 1 MiB inflight, 8 MiB buffer); migration may take explicitly supplied prior server limits rather than infer settings from a client. The agent enforces fixed implementation ceilings, without local target or tuning overrides. Hot carrier-policy changes require a fresh session; this gate need not resize active carriers. Carrier attachment must match the authenticated session snapshot policy.
+
+Add a persisted, monotonically increasing unsigned 64-bit configuration revision per Device. Revision is a decimal string on the wire; zero, noncanonical values and overflow are invalid. Changes to that device's tunnel set/policy advance it once; no-ops do not. Tunnel ownership is immutable in this gate. A future transfer between devices needs an explicit contract.
+
+A single server mutation owner serializes whole-state commits across devices, with at most eight queued mutations and a busy result on overload. It validates a complete candidate, checks an expected revision, writes the candidate durably, then publishes desired state and closes admission for obsolete routes before acknowledging the mutation. It must not modify the live MemoryStore and then call SaveState. Rebuild the listener index atomically, checking device ownership, listener conflicts and bounded native snapshots before persistence. Apply new native-target/snapshot bounds to devices eligible for synchronized native sessions; legacy-only targets retain their existing validation/wire bounds. Disabled desired records are valid but cannot admit traffic. Keep the daemon's exclusive state lock and private-file/encryption rules. Offline writers still refuse a running daemon.
+
+Propose state schema v2 with a lossless v1 read/migration: initial device revisions are 1, all relationships/credentials remain intact, and the existing encrypted-secret envelope/AAD remains compatible. Do not change real state as part of this design gate. Pre-rename persistence failure leaves live state/revisions unchanged. Every error after successful rename and before confirmed directory fsync, including directory-open failure, is an uncertain commit: halt further mutations, close affected admission, report `commit_uncertain`, and require recovery from the actual file; never claim rollback. Cancellation or shutdown before rename may abort; after successful rename, finish durability confirmation regardless of cancellation and return the durable result or commit_uncertain, never an uncommitted cancellation result.
+
+Use typed server commands for tunnel create/update/delete and device/tunnel enable changes. A later Web UI calls these same use cases, not a CLI subprocess or direct state-file writer. For the first operator adapter, propose an explicitly configured private Unix socket plus `kavernctl`, with filesystem ownership/access as the local administrator boundary. Devices' credentials cannot authorize administration. Remote management authentication and the Web UI are later slices, not permanent product exclusions. No management transport is needed for the first coding slice.
+
+### 2. Scoped, bounded full snapshots
+
+Extend KAPv1 with required configuration-sync schema 1. Every fresh authenticated control session starts unsynchronized and receives a full snapshot, even if its Device revision equals a previous connection's revision. No persistent agent target cache is authoritative. Empty tunnel sets are valid.
+
+All configuration messages carry `(device_id, session_id, revision, transfer_id)`. A transfer ID is a bounded session-local counter, never a credential. Snapshot content is an immutable, sorted projection of that Device's enabled TCP tunnels plus server carrier policy; it includes no credentials, other devices' records or server filesystem paths. Omission removes a tunnel from the agent's active map. Public listener addresses remain server-only.
+
+Propose `config_begin`, one `config_tunnel` per entry, and `config_end`, followed by `config_ack` or a bounded-code `config_reject`. Begin declares entry count and total payload bytes; entries carry a contiguous index; end repeats the transfer identity/count. Preserve 4,096-byte per-frame limits and strict JSON parsing. Target addresses have a new 512-byte UTF-8/syntax ceiling and a nonzero TCP port; IDs keep the current 128-byte ceiling.
+
+The immutable sender computes size before sending. Cap a full transfer at 1 MiB of JSON payload, 1,024 entries and 1,026 transfer frames; the existing 1 MiB state-file cap also remains. Allow one staged transfer and one applied map per session, one in-flight server snapshot and a single coalesced desired-revision wakeup. Also cap aggregate staged snapshot payload at 16 MiB per process; exhaustion rejects/ends the syncing session without changing desired state. These are payload bounds, not process RSS promises. Latest revisions replace wakeups, not an unbounded update queue.
+
+Give receive+validation+ACK a 10-second absolute transfer deadline; it is not extended by partial progress or heartbeats. Give every control write a five-second bound. ACK timeout or malformed transfer retires the session; reconnect resends the latest full state. Do not automatically retransmit application bytes.
+
+One reader owns each control connection and dispatches both heartbeat and synchronization events. One writer serializes frames, with at most eight queued control messages and one incrementally produced snapshot entry; heartbeat responses have bounded service between entries. A full control queue times out within the write budget and retires the session. No second goroutine reads that connection, no unbounded frame queue, and no route/admission/registry lock is held across network writes, target dials or persistence.
+
+### 3. Application, readiness and stale work
+
+Agent closes new-stream admission at config_begin, validates the entire staged snapshot, and atomically installs an immutable target resolver while collecting affected handlers under the same admission guard. It does not probe every target: ACK means configuration was installed, not that every destination is reachable. It closes/cancels handlers and pending dials for removed/disabled/changed targets outside that guard; if cleanup cannot complete within the transfer budget, retire the session rather than ACK partial application. New admission reopens only after the matching ready_ok. Unchanged established streams retain their captured target. Replacement/disconnect discards staged and applied maps with all session-owned resources.
+
+Server accepts ACK only for its exact outstanding transfer on the current enabled Device/session. Wrong device/session, old/future revision, wrong transfer, unsolicited or negative/malformed ACK cannot advance readiness. A duplicate identical last ACK is harmless; it changes nothing. If desired revision advances while a transfer is in flight, finish that one within its budget, record it only as stale applied state, then send the latest full snapshot. New routes remain gated until desired and applied revisions match.
+
+Native stream metadata adds the applied configuration revision alongside tunnel ID/protocol, without any caller-selected target address. The bound carrier supplies session identity. Agent rejects unknown tunnels and any revision other than its installed revision before dialing. Resolve once and capture the target; a snapshot swap cannot retarget an existing stream. The native Session checks desired/applied revision and actual carrier availability again after a pool wait, before emitting metadata. Route admission registers an attempt against its generation before any asynchronous stream open, so a concurrent revocation cannot miss it.
+
+Reload authoritative Tunnel/Device data at public admission and RouteTCP entry. Public accept handlers retain only tunnel identity and listener generation, not a startup Tunnel value. Reject obsolete listener generations and untrusted caller target/enable/ownership values. Business core uses domain revision/readiness facts and AgentSession/TunnelRouter interfaces; wire message types stay inside `agent_v1`.
+
+Track separate runtime facts: desired revision (durable), current session/presence, agent-applied revision, actual carrier availability, and each listener's bind/admission status/error. A ready tunnel requires the current session's ACK of desired revision, required carriers actually attached, and that enabled listener bound. Target reachability remains a per-open outcome. After every ACK and actual carrier setup, agent requests ready with the same tuple; server revalidates current desired/applied state and carrier count before ready_ok. The agent_ready event means session synchronization/carriers were confirmed, not that all public listeners or targets are healthy. Scope ready/ready_ok and every later status to Device/session/revision; a lost ready_ok recovers by reconnecting/full sync. User-facing status/logs use a nonsecret runtime generation instead of raw session tokens, nonces or HMAC material. A healthy empty configuration may be synchronized with zero ready tunnels.
+
+### 4. Listener changes and revocation
+
+At desired-state publication, gate all new opens for a Device whose desired/applied revisions differ, and cancel affected active/pending routes for disable/delete, target change or listener change. Device disable retires its session and all device routes immediately, without waiting for an agent ACK. Final authentication/session publication must recheck enabled state under the same admission guard; replaced-session closure occurs outside that guard. A disable racing authentication cannot publish a disabled Device's session. Preserve unaffected devices and unchanged established tunnels where backend cancellation permits; existing carrier retirement may also end other streams on that carrier and must be reported honestly.
+
+Reconcile public listeners dynamically from desired state, independently of sync ACK. A failed bind leaves desired state saved and that tunnel `listener_failed`; no implicit rollback and no serving the old listener after an address change. Other ready tunnels keep running. An unexpected public Accept failure retires that listener, not the whole daemon; failure of the control/legacy service listener can retain the existing daemon-fatal behavior. Retry failed public binds with one bounded timer/state per tunnel (100 ms to five-second backoff), coalescing revision changes. Close superseded listeners and join their accept loops. Preserve the shared 256 accepted-handler ceiling and add an explicit 1,024 total public-listener ceiling.
+
+Runtime status returns actual bound addresses, including ephemeral port-zero addresses; persist desired addresses only. Bound sockets may reject connections while no matching current ready session exists. Listener handles/route generations are process-local, never persisted as readiness. Restart rebuilds desired state but clears all applied/readiness facts.
+
+### 5. Transition and TCP lifetime
+
+Require `config_sync_version=1` in native auth_start/challenge and bind that selection into canonical authentication and carrier HMAC input. The updated server rejects missing/unsupported sync capability before session attachment, so an old native agent cannot replace a working synchronized session. The new agent never falls back to local targets against an old server. Use a coordinated native release; mixed pairs fail closed with a safe diagnostic where the peer supports one. Existing legacy authentication/wire/mux behavior is unchanged.
+
+New agent config accepts only bootstrap fields. Reject deprecated `targets`, `carriers` and `limits` with actionable migration diagnostics; do not merge local and server maps. Validate existing state against the new native snapshot bounds before switching to synchronized mode. An over-limit or missing server target blocks readiness and requires an operator correction; there is no silent local fallback.
+
+The current public route deadline is five minutes from accept, including open and both copy directions; traffic does not reset it. Native sessions also expire after one hour and replacement closes their pools. Propose preserving both limits in this synchronization gate so performance/lifecycle baselines remain comparable, while exposing their meaning in operator status/docs.
+
+For a separately approved lifecycle slice, recommend distinct bounded stream-open (five seconds), dial/header/write/control-liveness deadlines, and explicit server-owned idle/maximum-lifetime policy. For ordinary TCP tunnels, propose no default maximum route age or application-idle eviction; operators can set either bound when needed. Routine auth/session expiry must be addressed together: prefer nonce/HMAC renewal on the same verified authenticated control connection so one-hour renewal does not tear down healthy traffic. A deliberately disruptive expiry or bounded draining would be a separate accepted alternative; do not introduce multi-active sessions/draining implicitly. A zero route lifetime alone does not promise indefinite tunnels; peer/control loss, policy revocation, shutdown and resource limits still terminate them. Test time with injected clocks rather than five-minute/hour sleeps.
+
+## First coding slice and review boundary
+
+After the implementation handoff, start with domain snapshot/revision values, full-candidate validation, staged atomic state commits and v1/v2 round-trip/migration tests in existing `internal/domain`, `internal/config` and `internal/store`. Fix stale listener indexes there. Keep current commands and native wire behavior unchanged. Use fixtures and injected persistence failure points; do not provision real credentials.
+
+Stop for independent review of this slice's diff/tests before implementing control synchronization, route generation/cancellation, listener reconciliation or an administration adapter. The [acceptance contract](../NATIVE_CONFIG_ACCEPTANCE.md) defines those subsequent slices. No upstream source access, external binary acquisition/tests, deployment, real credentials provisioning, security-setting change, push or force push is part of this gate.

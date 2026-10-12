@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -22,14 +23,20 @@ type sealedSecret struct {
 	DeviceID   domain.DeviceID
 	Ciphertext string
 }
+type deviceConfigState struct {
+	DeviceID domain.DeviceID
+	Revision domain.ConfigRevision
+	Policy   domain.NativePolicy
+}
 type stateFile struct {
-	Version     int
-	Users       []domain.User
-	Projects    []domain.Project
-	Devices     []domain.Device
-	Tunnels     []domain.Tunnel
-	Credentials []domain.DeviceCredential
-	Secrets     []sealedSecret
+	Version        int
+	Users          []domain.User
+	Projects       []domain.Project
+	Devices        []domain.Device
+	Tunnels        []domain.Tunnel
+	Credentials    []domain.DeviceCredential
+	Secrets        []sealedSecret
+	Configurations []deviceConfigState `json:",omitempty"`
 }
 
 func MasterKeyFromEnv(name string) ([]byte, error) {
@@ -74,18 +81,29 @@ func privateFile(path string) error {
 	return nil
 }
 func (s *MemoryStore) SaveState(path string, key []byte) error {
-	aead, err := stateCipher(key)
+	data, err := s.encodeState(key)
 	if err != nil {
 		return err
 	}
-	if err = secureStateDir(path); err != nil {
-		return err
+	return writeState(context.Background(), path, data, defaultStateFiles())
+}
+func (s *MemoryStore) encodeState(key []byte) ([]byte, error) {
+	aead, err := stateCipher(key)
+	if err != nil {
+		return nil, err
 	}
-	if err = privateFile(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	state := stateFile{Version: 1}
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+	state := stateFile{Version: s.stateVersion}
+	if err := s.validateState(false); err != nil {
+		return nil, err
+	}
+	if s.stateVersion == 2 {
+		for id := range s.devices {
+			state.Configurations = append(state.Configurations, deviceConfigState{DeviceID: id, Revision: s.revisions[id], Policy: s.policies[id]})
+		}
+		sort.Slice(state.Configurations, func(i, j int) bool { return state.Configurations[i].DeviceID < state.Configurations[j].DeviceID })
+	}
 	for _, v := range s.users {
 		state.Users = append(state.Users, v)
 	}
@@ -104,13 +122,11 @@ func (s *MemoryStore) SaveState(path string, key []byte) error {
 	for id, secret := range s.kapv1Secret {
 		nonce := make([]byte, aead.NonceSize())
 		if _, err = rand.Read(nonce); err != nil {
-			s.mu.RUnlock()
-			return err
+			return nil, err
 		}
 		sealed := aead.Seal(nonce, nonce, secret, []byte("kavern-state-v1:"+string(id)))
 		state.Secrets = append(state.Secrets, sealedSecret{id, base64.RawURLEncoding.EncodeToString(sealed)})
 	}
-	s.mu.RUnlock()
 	sort.Slice(state.Users, func(i, j int) bool { return state.Users[i].ID < state.Users[j].ID })
 	sort.Slice(state.Projects, func(i, j int) bool { return state.Projects[i].ID < state.Projects[j].ID })
 	sort.Slice(state.Devices, func(i, j int) bool { return state.Devices[i].ID < state.Devices[j].ID })
@@ -119,37 +135,24 @@ func (s *MemoryStore) SaveState(path string, key []byte) error {
 	sort.Slice(state.Secrets, func(i, j int) bool { return state.Secrets[i].DeviceID < state.Secrets[j].DeviceID })
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(data) > config.MaxJSONBytes {
-		return ErrInvalidState
+		return nil, ErrInvalidState
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".state-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(data); err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+
+	return data, nil
 }
+
 func LoadState(path string, key []byte) (*MemoryStore, error) {
+	return LoadStateWithNativePolicy(path, key, domain.DefaultNativePolicy())
+}
+
+// LoadStateWithNativePolicy reads without rewriting. Defaults apply only to v1.
+func LoadStateWithNativePolicy(path string, key []byte, defaults domain.NativePolicy) (*MemoryStore, error) {
+	if config.ValidateNativePolicy(defaults) != nil {
+		return nil, ErrInvalidState
+	}
 	aead, err := stateCipher(key)
 	if err != nil {
 		return nil, err
@@ -169,10 +172,11 @@ func LoadState(path string, key []byte) (*MemoryStore, error) {
 	if err = config.DecodeJSON(f, &state); err != nil {
 		return nil, err
 	}
-	if state.Version != 1 {
+	if state.Version != 1 && state.Version != 2 {
 		return nil, ErrInvalidState
 	}
 	s := NewMemoryStore()
+	s.stateVersion = state.Version
 	for _, v := range state.Users {
 		if !config.ValidID(string(v.ID)) {
 			return nil, ErrInvalidState
@@ -255,6 +259,28 @@ func LoadState(path string, key []byte) (*MemoryStore, error) {
 			return nil, ErrInvalidState
 		}
 		s.kapv1Secret[v.DeviceID] = secret
+	}
+	if state.Version == 1 {
+		if len(state.Configurations) != 0 {
+			return nil, ErrInvalidState
+		}
+		for id := range s.devices {
+			s.revisions[id] = 1
+			s.policies[id] = defaults
+		}
+	} else {
+		for _, c := range state.Configurations {
+			if _, ok := s.devices[c.DeviceID]; !ok {
+				return nil, ErrInvalidState
+			}
+			if _, ok := s.revisions[c.DeviceID]; ok || c.Revision == 0 || config.ValidateNativePolicy(c.Policy) != nil {
+				return nil, ErrInvalidState
+			}
+			s.revisions[c.DeviceID], s.policies[c.DeviceID] = c.Revision, c.Policy
+		}
+	}
+	if err := s.validateState(false); err != nil {
+		return nil, err
 	}
 	return s, nil
 }

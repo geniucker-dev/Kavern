@@ -1,0 +1,64 @@
+{
+  "Credentials": [
+    {
+      "ID": "fixture-legacy",
+      "DeviceID": "b",
+      "Kind": "legacy_npc",
+      "LegacyLookupKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "RotatedAt": "0001-01-01T00:00:00Z"
+    }
+  ],
+  "Devices": [
+    {
+      "Enabled": false,
+      "ID": "a",
+      "Name": "",
+      "ProjectID": "project"
+    },
+    {
+      "Enabled": true,
+      "ID": "b",
+      "Name": "",
+      "ProjectID": "project"
+    }
+  ],
+  "Projects": [
+    {
+      "ID": "project",
+      "Name": "",
+      "UserID": "user"
+    }
+  ],
+  "Secrets": [
+    {
+      "Ciphertext": "65cDMahUNGXXzcU01FT7H5_kheI4xADybbT362dSCsqpV_mGBpGAdgtM4hjeb30M_OgJ6nakwPfoK_yb",
+      "DeviceID": "a"
+    }
+  ],
+  "Tunnels": [
+    {
+      "DeviceID": "b",
+      "Enabled": true,
+      "ID": "legacy-old",
+      "Listener": "127.0.0.1:10002",
+      "Protocol": "tcp",
+      "TargetAddr": "lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll:0"
+    },
+    {
+      "DeviceID": "a",
+      "Enabled": true,
+      "ID": "native-old",
+      "Listener": "127.0.0.1:10001",
+      "Protocol": "tcp",
+      "TargetAddr": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn:0"
+    }
+  ],
+  "Users": [
+    {
+      "ID": "user",
+      "Name": "fixture owner"
+    }
+  ],
+  "Version": 1
+}

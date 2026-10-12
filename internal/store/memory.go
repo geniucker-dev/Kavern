@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -13,29 +14,35 @@ import (
 type MemoryStore struct {
 	mu sync.RWMutex
 
-	users       map[domain.UserID]domain.User
-	projects    map[domain.ProjectID]domain.Project
-	devices     map[domain.DeviceID]domain.Device
-	tunnels     map[domain.TunnelID]domain.Tunnel
-	listeners   map[domain.ListenerRef]domain.TunnelID
-	credentials map[domain.CredentialID]domain.DeviceCredential
-	legacyIndex map[string]domain.CredentialID
-	kapv1Secret map[domain.DeviceID][]byte
+	users        map[domain.UserID]domain.User
+	projects     map[domain.ProjectID]domain.Project
+	devices      map[domain.DeviceID]domain.Device
+	tunnels      map[domain.TunnelID]domain.Tunnel
+	listeners    map[domain.ListenerRef]domain.TunnelID
+	credentials  map[domain.CredentialID]domain.DeviceCredential
+	legacyIndex  map[string]domain.CredentialID
+	kapv1Secret  map[domain.DeviceID][]byte
+	revisions    map[domain.DeviceID]domain.ConfigRevision
+	policies     map[domain.DeviceID]domain.NativePolicy
+	stateVersion int
 
 	now func() time.Time
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		users:       make(map[domain.UserID]domain.User),
-		projects:    make(map[domain.ProjectID]domain.Project),
-		devices:     make(map[domain.DeviceID]domain.Device),
-		tunnels:     make(map[domain.TunnelID]domain.Tunnel),
-		listeners:   make(map[domain.ListenerRef]domain.TunnelID),
-		credentials: make(map[domain.CredentialID]domain.DeviceCredential),
-		legacyIndex: make(map[string]domain.CredentialID),
-		kapv1Secret: make(map[domain.DeviceID][]byte),
-		now:         time.Now,
+		users:        make(map[domain.UserID]domain.User),
+		projects:     make(map[domain.ProjectID]domain.Project),
+		devices:      make(map[domain.DeviceID]domain.Device),
+		tunnels:      make(map[domain.TunnelID]domain.Tunnel),
+		listeners:    make(map[domain.ListenerRef]domain.TunnelID),
+		credentials:  make(map[domain.CredentialID]domain.DeviceCredential),
+		legacyIndex:  make(map[string]domain.CredentialID),
+		kapv1Secret:  make(map[domain.DeviceID][]byte),
+		revisions:    make(map[domain.DeviceID]domain.ConfigRevision),
+		policies:     make(map[domain.DeviceID]domain.NativePolicy),
+		stateVersion: 1,
+		now:          time.Now,
 	}
 }
 
@@ -91,6 +98,16 @@ func (s *MemoryStore) CreateDevice(ctx context.Context, device domain.Device) er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old, ok := s.devices[device.ID]; ok {
+		if old != device {
+			if err := s.advanceRevisionLocked(device.ID); err != nil {
+				return err
+			}
+		}
+	} else {
+		s.revisions[device.ID] = 1
+		s.policies[device.ID] = domain.DefaultNativePolicy()
+	}
 	s.devices[device.ID] = device
 	return nil
 }
@@ -114,10 +131,43 @@ func (s *MemoryStore) CreateTunnel(ctx context.Context, tunnel domain.Tunnel) er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if owner, ok := s.listeners[tunnel.Listener]; tunnel.Listener != "" && ok && owner != tunnel.ID {
+		return ErrListenerConflict
+	}
+	old, exists := s.tunnels[tunnel.ID]
+	if !exists || old != tunnel {
+		// Preserve the low-level upsert used by gateway negative fixtures. The
+		// durable owner separately enforces immutable tunnel ownership.
+		changed := map[domain.DeviceID]bool{tunnel.DeviceID: true}
+		if exists {
+			changed[old.DeviceID] = true
+		}
+		for id := range changed {
+			if _, ok := s.devices[id]; ok && s.revisions[id] == domain.ConfigRevision(math.MaxUint64) {
+				return ErrRevisionOverflow
+			}
+		}
+		for id := range changed {
+			if _, ok := s.devices[id]; ok {
+				_ = s.advanceRevisionLocked(id)
+			}
+		}
+	}
+	if exists && old.Listener != "" {
+		delete(s.listeners, old.Listener)
+	}
 	s.tunnels[tunnel.ID] = tunnel
 	if tunnel.Listener != "" {
 		s.listeners[tunnel.Listener] = tunnel.ID
 	}
+	return nil
+}
+
+func (s *MemoryStore) advanceRevisionLocked(id domain.DeviceID) error {
+	if s.revisions[id] == domain.ConfigRevision(math.MaxUint64) {
+		return ErrRevisionOverflow
+	}
+	s.revisions[id]++
 	return nil
 }
 
