@@ -50,6 +50,8 @@ func (c ownerCommitContext) Err() error {
 // wired into daemon/CLI commands in Slice A, and exposes no mutable live store.
 type ConfigOwner struct {
 	mu                sync.RWMutex
+	bindings          map[domain.TunnelID]listenerBinding
+	listenerSequence  uint64
 	current           *MemoryStore
 	uncertain, closed bool
 	path              string
@@ -84,7 +86,7 @@ func openConfigOwner(path string, key []byte, defaults domain.NativePolicy, file
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	o := &ConfigOwner{current: current, path: path, key: append([]byte(nil), key...), defaults: defaults, files: files, queue: make(chan configRequest, MaxQueuedConfigMutations), ctx: ctx, cancel: cancel, done: make(chan struct{}), unlock: unlock, work: session.NewWorkSet(maxOwnedWork), changed: make(chan struct{})}
+	o := &ConfigOwner{bindings: make(map[domain.TunnelID]listenerBinding), current: current, path: path, key: append([]byte(nil), key...), defaults: defaults, files: files, queue: make(chan configRequest, MaxQueuedConfigMutations), ctx: ctx, cancel: cancel, done: make(chan struct{}), unlock: unlock, work: session.NewWorkSet(maxOwnedWork), changed: make(chan struct{})}
 	go o.run()
 	return o, nil
 }
@@ -92,6 +94,7 @@ func openConfigOwner(path string, key []byte, defaults domain.NativePolicy, file
 func (o *ConfigOwner) Close() error {
 	o.mu.Lock()
 	o.closed = true
+	o.invalidateListenersLocked()
 	o.cancel()
 	o.signalLocked()
 	revoked := o.work.Collect(func(domain.WorkScope) bool { return true })
@@ -354,6 +357,7 @@ func (o *ConfigOwner) process(ctx context.Context, req configRequest) configResu
 		if errors.Is(err, ErrCommitUncertain) {
 			o.mu.Lock()
 			o.uncertain = true
+			o.invalidateListenersLocked()
 			o.signalLocked()
 			revoked := o.work.Collect(func(domain.WorkScope) bool { return true })
 			o.mu.Unlock()

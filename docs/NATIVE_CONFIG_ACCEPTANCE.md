@@ -131,3 +131,57 @@ Public listener generation checks/reconciliation, runtime status/operator adapte
 coordinated native command rollout, and route/session lifetime policy remain later
 reviewed checkpoints. Five-minute public routes and one-hour native sessions are
 unchanged here.
+
+## Slice C2: dynamic public listeners and owned service assembly
+
+The C2 candidate supplies a testable synchronized daemon assembly in
+`cmd/kavernd/sync_service.go`; the existing command entry point still uses the
+reviewed MVP path. Native command rollout and operator/admin UI are later gates.
+
+- One ConfigOwner owns the exclusive state lock, native authentication, routing,
+  desired snapshots and public listener specifications. Runtime listener bindings
+  and monotonic generation numbers are process-local and never persisted.
+- Desired publication invalidates changed/deleted/disabled listener generations
+  under the same owner guard as route admission. Accepted handlers retain tunnel
+  identity plus generation; they cannot route through an obsolete generation,
+  including across disable/re-enable. An unrelated desired revision or target
+  change does not unnecessarily replace a healthy socket.
+- One coordinator reads full authoritative desired views on coalesced wakeups.
+  It keeps at most 1,024 live listeners and one bounded retry-state record per
+  enabled tunnel, serviced by one timer. Bind attempts have a five-second context;
+  failed binds retry from 100 ms up to five seconds. A pending bind whose desired
+  generation was invalidated is closed rather than installed. Failure events are
+  bounded to 1,024; every accept loop emits at most one terminal event.
+- Bind failure retains the saved desired configuration and reports bind_failed
+  with desired address and retry time, never an old bound address. Unexpected
+  public Accept failure immediately gates that generation, cancels its handlers,
+  reports accept_failed and retries independently. Other sockets and control
+  authentication continue. Superseded/disabled/deleted listeners close and join
+  their accept loops and handlers. A control-listener failure remains fatal to
+  the assembled service.
+- Runtime status reports actual bound addresses (including port zero) and
+  generation. Bound describes socket state; it does not assert native applied
+  revision/carrier readiness or target reachability. Admission still enforces the
+  current authoritative configuration and the existing native readiness gate.
+- The assembly shares the existing 256 accepted-handler ceiling across control,
+  carrier and public handlers. Saturation closes the excess connection without a
+  waiter queue. Public routes retain their five-minute absolute context/socket
+  deadline; native session expiry remains one hour. Shutdown cancels handlers,
+  closes sockets, joins workers and releases the state lock. It does not force
+  termination of an injected Go callback that ignores cancellation/Close.
+
+Acceptance uses own temporary loopback fixtures for occupied-port recovery,
+port-zero addresses, create/change/delete/disable/re-enable, immediate stale
+handler rejection, isolated Accept failure, pending-bind supersession and rapid
+update coalescing, unaffected active byte traffic, both capacity bounds and
+shutdown/rebind checks. The service assembly exercises verified TLS full sync,
+two native data carriers and byte-exact TCP echo through the owned listener;
+a live saved bind failure leaves control auth usable, device disable retires
+traffic, and restart reads durable state with the exclusive lock released.
+Startup control-bind failure and Close before Run also release the lock.
+
+Independent frozen diff/test review is required before committing C2 or wiring
+this assembly into native commands. No upstream source or external NPC binary
+execution, deployment, real credential provisioning or new performance claim is
+part of this checkpoint. Normal existing legacy gateway/command tests remain
+regression scope; real-NPC evidence retains its historical limits.

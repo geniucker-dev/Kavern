@@ -72,7 +72,27 @@ func (r *Router) RouteTCP(ctx context.Context, tunnel domain.Tunnel, inbound net
 			ctx = lease.Context
 		}
 	}
-	tunnel = view.Tunnel
+	return r.routeView(ctx, view, inbound)
+}
+func (r *Router) RouteListenerTCP(ctx context.Context, id domain.TunnelID, generation uint64, inbound net.Conn) error {
+	owner, ok := r.store.(interface {
+		AdmitListener(context.Context, domain.TunnelID, uint64) (domain.RouteView, *session.WorkLease, error)
+	})
+	if !ok {
+		return domain.ErrStaleAdmission
+	}
+	view, lease, err := owner.AdmitListener(ctx, id, generation)
+	if err != nil {
+		return err
+	}
+	if lease != nil {
+		defer lease.Finish()
+		ctx = lease.Context
+	}
+	return r.routeView(ctx, view, inbound)
+}
+func (r *Router) routeView(ctx context.Context, view domain.RouteView, inbound net.Conn) error {
+	tunnel := view.Tunnel
 	current, err := r.sessions.CurrentForDevice(ctx, view.Device.ID)
 	if err != nil {
 		return err

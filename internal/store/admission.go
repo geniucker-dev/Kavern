@@ -68,25 +68,35 @@ func (o *ConfigOwner) RouteViewByListener(ctx context.Context, ref domain.Listen
 func (o *ConfigOwner) AdmitTunnel(ctx context.Context, id domain.TunnelID, revision domain.ConfigRevision) (domain.RouteView, *session.WorkLease, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.closed {
-		return domain.RouteView{}, nil, ErrConfigOwnerClosed
-	}
-	if o.uncertain {
-		return domain.RouteView{}, nil, ErrCommitUncertain
-	}
-	view, err := o.current.RouteView(ctx, id)
+	v, err := o.admissionViewLocked(ctx, id, revision)
 	if err != nil {
 		return domain.RouteView{}, nil, err
 	}
+	return o.registerRouteLocked(ctx, v)
+}
+func (o *ConfigOwner) admissionViewLocked(ctx context.Context, id domain.TunnelID, revision domain.ConfigRevision) (domain.RouteView, error) {
+	if o.closed {
+		return domain.RouteView{}, ErrConfigOwnerClosed
+	}
+	if o.uncertain {
+		return domain.RouteView{}, ErrCommitUncertain
+	}
+	view, err := o.current.RouteView(ctx, id)
+	if err != nil {
+		return domain.RouteView{}, err
+	}
 	if !view.Device.Enabled {
-		return domain.RouteView{}, nil, domain.ErrDisabledDevice
+		return domain.RouteView{}, domain.ErrDisabledDevice
 	}
 	if !view.Tunnel.Enabled {
-		return domain.RouteView{}, nil, domain.ErrDisabledTunnel
+		return domain.RouteView{}, domain.ErrDisabledTunnel
 	}
 	if revision != 0 && revision != view.Revision {
-		return domain.RouteView{}, nil, domain.ErrStaleAdmission
+		return domain.RouteView{}, domain.ErrStaleAdmission
 	}
+	return view, nil
+}
+func (o *ConfigOwner) registerRouteLocked(ctx context.Context, view domain.RouteView) (domain.RouteView, *session.WorkLease, error) {
 	scope := view.WorkScope()
 	scope.Policy = o.current.policies[view.Device.ID]
 	if lease := o.work.Existing(ctx, scope); lease != nil {
@@ -131,6 +141,7 @@ func (o *ConfigOwner) ChangeSignal() <-chan struct{} {
 func (o *ConfigOwner) signalLocked() { close(o.changed); o.changed = make(chan struct{}) }
 func (o *ConfigOwner) publishLocked(next *MemoryStore) []*session.WorkLease {
 	o.current = next
+	o.invalidateListenersLocked()
 	o.signalLocked()
 	return o.work.Collect(func(scope domain.WorkScope) bool {
 		device, ok := next.devices[scope.DeviceID]
