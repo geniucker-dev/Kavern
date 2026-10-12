@@ -297,3 +297,22 @@ NPC_BIN-free; historical binary evidence is regression context, not a fresh clai
 Stop after a frozen patch, exact file manifest and test output for independent M1
 review. A commit requires GO; M2 administration transport/CLI and the mandatory
 lifecycle gate require separate handoffs and reviews.
+
+## M2 implementation refinement (pending independent review)
+
+M1 was independently accepted and committed as
+`c3ad703c852044287d98d4faf72004b50cdc9ab6`. M2 implements only the private Linux UDS
+adapter and online CLI against that actor. See `docs/ONLINE_ADMIN.md` for exact DTO,
+retry, issuance-file, ownership, shutdown and resource contracts. The endpoint uses
+pinned descriptors, a retained ownership lock and bounded inode/ctime marker;
+automatic stale cleanup requires proof of its own inactive endpoint. Atomic
+non-overwriting capture/removal preserves racing or unrelated replacements.
+Unsupported server architectures fail before creating endpoint resources.
+
+CLI fresh issuance reserves and syncs a new private output file before mutation;
+stdout remains redacted. Explicit retry verifies the original request window's
+retained receipt before digest-checked resubmission, so it cannot silently become a
+new issuance after eviction. Exact original-window lookup is mandatory. No WebUI,
+production fault control, native wire/lifetime change, real access provisioning or
+new external NPC binary acceptance is included. The required subsequent lifecycle
+gate and its sustained-use acceptance remain unchanged.

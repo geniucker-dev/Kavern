@@ -55,18 +55,25 @@ func run(path string) error {
 		return err
 	}
 	defer svc.Close()
-	if cfg.LegacyListen != "" {
-		secret, err := base64.RawURLEncoding.DecodeString(os.Getenv(cfg.ServerSecretEnv))
-		if err != nil || len(secret) < 32 {
-			return errors.New("legacy server secret must contain at least 32 base64url bytes")
+
+	var legacyKey []byte
+	if cfg.ServerSecretEnv != "" {
+		legacyKey, err = base64.RawURLEncoding.DecodeString(os.Getenv(cfg.ServerSecretEnv))
+		if err != nil || len(legacyKey) < 32 || len(legacyKey) > 4096 {
+			return errors.New("legacy server secret must contain 32 to 4096 base64url bytes")
 		}
-		defer clear(secret)
-		svc.legacy, err = legacy_npc.New(legacy_npc.Config{ServerSecret: secret, Store: svc.owner, Sessions: svc.manager})
+		defer clear(legacyKey)
+	}
+	svc.adminSocket = cfg.AdminSocket
+	svc.adminLegacyKey = legacyKey
+	if cfg.LegacyListen != "" {
+		svc.legacy, err = legacy_npc.New(legacy_npc.Config{ServerSecret: legacyKey, Store: svc.owner, Sessions: svc.manager})
 		if err != nil {
 			return err
 		}
 		svc.legacyListen = cfg.LegacyListen
 	}
+
 	svc.ready = func() error {
 		public := map[domain.TunnelID]string{}
 		status := svc.public.Status()

@@ -6,10 +6,12 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 // NativeServer is transport/storage bootstrap, not per-device carrier policy.
 type NativeServer struct {
+	AdminSocket     string `json:"admin_socket,omitempty"`
 	ControlListen   string `json:"control_listen"`
 	LegacyListen    string `json:"legacy_listen,omitempty"`
 	CertFile        string `json:"cert_file"`
@@ -50,7 +52,7 @@ func LoadNativeServer(path string) (NativeServer, error) {
 	if c.ControlListen == "" {
 		c.ControlListen = "127.0.0.1:8024"
 	}
-	if ValidateAddress(c.ControlListen) != nil || (c.LegacyListen != "" && ValidateAddress(c.LegacyListen) != nil) || c.CertFile == "" || c.KeyFile == "" || c.StateFile == "" || !ValidID(c.MasterKeyEnv) || (c.LegacyListen != "" && !ValidID(c.ServerSecretEnv)) {
+	if ValidateAddress(c.ControlListen) != nil || (c.LegacyListen != "" && ValidateAddress(c.LegacyListen) != nil) || c.CertFile == "" || c.KeyFile == "" || c.StateFile == "" || !ValidID(c.MasterKeyEnv) || (c.LegacyListen != "" && !ValidID(c.ServerSecretEnv)) || (c.ServerSecretEnv != "" && !ValidID(c.ServerSecretEnv)) || (c.AdminSocket != "" && (!filepath.IsAbs(c.AdminSocket) || filepath.Clean(c.AdminSocket) != c.AdminSocket || len(c.AdminSocket) > 100)) {
 		return c, errors.New("invalid server bootstrap settings")
 	}
 	return c, nil

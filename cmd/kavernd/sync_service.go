@@ -17,23 +17,25 @@ import (
 // syncService is the owned native command assembly. Its one owner holds the
 // exclusive state lock; the optional legacy gateway stays a separate handler.
 type syncService struct {
-	owner         *store.ConfigOwner
-	manager       *session.Manager
-	legacy        *legacy_npc.Gateway
-	legacyListen  string
-	legacyAddress string
-	ready         func() error
-	auth          *agent_v1.AuthService
-	routes        *router.Router
-	public        *router.ListenerService
-	trust         *tls.Config
-	slots         chan struct{}
-	mu            sync.Mutex
-	started       bool
-	address       string
-	cancel        context.CancelFunc
-	done          chan struct{}
-	closeErr      error
+	adminSocket    string
+	adminLegacyKey []byte
+	owner          *store.ConfigOwner
+	manager        *session.Manager
+	legacy         *legacy_npc.Gateway
+	legacyListen   string
+	legacyAddress  string
+	ready          func() error
+	auth           *agent_v1.AuthService
+	routes         *router.Router
+	public         *router.ListenerService
+	trust          *tls.Config
+	slots          chan struct{}
+	mu             sync.Mutex
+	started        bool
+	address        string
+	cancel         context.CancelFunc
+	done           chan struct{}
+	closeErr       error
 }
 
 func newSyncService(path string, key []byte, trust *tls.Config) (*syncService, error) {
@@ -114,6 +116,24 @@ func (s *syncService) Run(parent context.Context, address string) (result error)
 		s.legacyAddress = socket.Addr().String()
 		s.mu.Unlock()
 	}
+
+	var adminDone chan error
+	adminJoined := false
+	if s.adminSocket != "" {
+		adminDone = make(chan error, 1)
+		started := make(chan error, 1)
+		go func() { adminDone <- s.runAdmin(ctx, s.adminSocket, started) }()
+		if err := <-started; err != nil {
+			<-adminDone
+			return err
+		}
+		defer func() {
+			cancel()
+			if !adminJoined {
+				result = errors.Join(result, <-adminDone)
+			}
+		}()
+	}
 	closed := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() { defer close(closed); closeSockets() })
 	defer func() {
@@ -159,6 +179,8 @@ func (s *syncService) Run(parent context.Context, address string) (result error)
 		case err = <-publicDone:
 			publicJoined = true
 		case err = <-failures:
+		case err = <-adminDone:
+			adminJoined = true
 		case <-ctx.Done():
 		}
 	}
@@ -166,6 +188,8 @@ func (s *syncService) Run(parent context.Context, address string) (result error)
 		select {
 		case <-ctx.Done():
 		case err = <-failures:
+		case err = <-adminDone:
+			adminJoined = true
 		case err = <-publicDone:
 			publicJoined = true
 		}

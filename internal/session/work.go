@@ -90,3 +90,27 @@ func CancelAndJoin(ctx context.Context, leases []*WorkLease) error {
 	}
 	return nil
 }
+
+func (s *WorkSet) RevokedCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for l := range s.live {
+		if l.revoked {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *WorkSet) RevokedDeviceCount(id domain.DeviceID) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for l := range s.live {
+		if l.revoked && l.scope.DeviceID == id {
+			n++
+		}
+	}
+	return n
+}
