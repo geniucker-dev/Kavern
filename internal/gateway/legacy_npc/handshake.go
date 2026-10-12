@@ -50,19 +50,12 @@ func (g *Gateway) readStockHandshake(ctx context.Context, conn net.Conn) (handsh
 	if string(preface[:]) != "TST" {
 		return handshakeResult{}, ErrInvalidHandshake
 	}
-	coreVersion, err := readLengthPrefixedString(conn, g.maxHandshakeBytes)
-	if err != nil {
+	// These declarations are opaque bounded metadata, not admission rules.
+	if _, err := readLengthPrefixedBytes(conn, g.maxHandshakeBytes); err != nil {
 		return handshakeResult{}, err
 	}
-	if coreVersion != legacyCoreVersion {
-		return handshakeResult{}, ErrInvalidHandshake
-	}
-	clientVersion, err := readLengthPrefixedString(conn, g.maxHandshakeBytes)
-	if err != nil {
+	if _, err := readLengthPrefixedBytes(conn, g.maxHandshakeBytes); err != nil {
 		return handshakeResult{}, err
-	}
-	if clientVersion != legacyClientVersion {
-		return handshakeResult{}, ErrInvalidHandshake
 	}
 	if err := writeAll(conn, legacyServerVersionField()); err != nil {
 		return handshakeResult{}, err

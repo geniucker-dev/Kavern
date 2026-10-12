@@ -90,6 +90,37 @@ flow-control matrix.
 
 If the tag is enabled without `NPC_BIN`, the expected result is a clear failure explaining that `NPC_BIN` is required.
 
+## Current Opaque-Declaration Policy and Scoped Compatibility Evidence
+
+On 2026-10-12, a separately reviewed isolated candidate passed basic server-configuration TCP echo and complete application close with official Linux amd64 NPC 0.26.17, 0.26.27, 0.26.34 and 0.26.39, invoked with `-server` and `-vkey`. Each fresh case used one application connection, exact 1/64/65536-byte echo, END/EOF, actual main/current mux readiness, offline verification and complete process/listener/directory cleanup. The externally reconciled 37-file evidence manifest is `79c6c11bb6197532cf93c28b221818a452f4a82a8ed02834c1f8d0bb3de157ad` (`npc-opaque-metadata-execution`, retained outside the repository). This is limited functional evidence, not all features, all versions, performance or an indefinite-soak result. Earlier v0.26.34 robustness evidence is historical and does not extend to the other releases.
+
+`opaque_metadata_test.go` exercises actual ServeConn with unknown/space/NUL declarations, each field boundary, fragmentation, configured smaller limits, the single deadline, authentication rejection before role/session creation and unsupported post-authentication roles. Ordinary tests remain offline and NPC_BIN/NPS_BIN-free. Metadata admission alone is not a claim that every version or feature works. The isolated compatibility harnesses, coordination tools and official assets remain outside this repository. The tagged suites and acquisition record below retain their pinned v0.26.34 historical scope; do not reinterpret their stress/robustness coverage as applying to 17/27/39.
+
+
+### Reviewed NPC39 Diagnostics and Lifecycle (2026-10-12)
+
+The final opaque policy additionally passed the following independently reviewed, isolated Linux amd64 cohorts. Both used official NPC 0.26.39 SHA-256 `bb6c1b5d081cf629b5814bb38a97c9d0bec757cde013b1843c9eb99314e1de1b`; the four-cell control used official stock NPS 0.26.39. These results supplement the basic four-version TCP evidence above without extending the historical v0.26.34 robustness matrix.
+
+| Cohort | Verified scope |
+| --- | --- |
+| NPC39 four-cell diagnostic | NPC39 × opaque Kavern / isolated stock NPS39 × fast E/R/C/close / wait-target-release; each cell completed one immediate seed0 startup and 100 warm probes, 404 total, within the unchanged one-second READY threshold. Target-release waiting observed only target C-consumption/close/slot-release state, not mux reclamation. No approximately five-second READY stall was observed in this one batch; this does not establish that the historical NPC34 stall's root cause was identified or fixed. |
+| NPC39 lifecycle | `TestLegacyNPCProcessRestartLifecycle`, `TestLegacyNPCClosePaths/npc-stop-active`, and `TestRealNPCCompanionMainReplacementCleanup`, each once; planned NPC starts/exits 2+1+2. Original 45/45/35-second contexts and 300/90/32-second batch/case/cleanup bounds were retained. |
+
+Lifecycle acceptance is limited: npc-stop-active explicitly cancels its route, so it does not prove autonomous stream termination. Companion replacement changes main and chan together and explicitly closes the old mux; it does not prove main-only replacement or automatic old-mux reclamation. No whole-case rerun or sample refill occurred. Original bounded fresh-route readiness retries for `ErrLegacyDataChannelUnavailable` were retained; this is not a claim of zero connection retries.
+
+The four-cell run joined 20 subprocesses, removed four private directories and found no remaining listener on its 20 registered ports. Lifecycle joined five NPC processes and three race-built test processes/readers, removed three private directories and found no remaining listener on its ten registered ports; no outer forced recovery was used. Frozen input checks and the shared working-tree snapshot were unchanged during both executions. The lifecycle outer caller's actual tool exit was 0; its post-seal, post-hash elapsed time was 5.629502187 seconds within the original 300-second budget. This is budget evidence, not a performance claim.
+
+Evidence root on sms: `/home/zhuhaoyu/Documents/Codex/2026-10-11/task/`, retained outside the repository. Each seal is the SHA-256 of that directory's `SHA256_MANIFEST.json`:
+
+| Evidence directory | Manifest seal |
+| --- | --- |
+| `npc-opaque-metadata-execution` (37 files; four-version basic TCP) | `79c6c11bb6197532cf93c28b221818a452f4a82a8ed02834c1f8d0bb3de157ad` |
+| `npc-v0.26.39-opaque-grid-execution` (46 files; four cells) | `ffb5a42483c04bae7f92b5d8e7aedbddbec55b0aad682f756b82f5ad2419a441` |
+| `npc39-lifecycle-execution-r1` (13 files; three lifecycle cases) | `1c49b6da08fb6556f68b544a38491fe4cb038b7f4088509c2853fdf50a001912` |
+| `npc39-lifecycle-tool-return-r1` (3 files; raw outer tool return and timing boundaries) | `ae9705213441e8ce6fc6f01b899e4cb7ca378a8022893fece796998875ff2076` |
+
+NPC39 simultaneous-stream, repeated/window-boundary flow-credit and full robustness matrices remain unverified. Stock chan-only reconnect, independent legacy half-close, additional releases/platforms, indefinite soak and performance remain outside these scoped claims. These are coverage boundaries, not a commitment to additional testing. In-repository tagged suites below still require the historical pinned v0.26.34 binary; the NPC39 adaptations and evidence helpers were not added to the working tree.
+
 ## Stock npc Binary Acquisition
 
 The repository may later include placeholders:
@@ -97,9 +128,9 @@ The repository may later include placeholders:
 - `scripts/build-npc.sh`
 - `scripts/fetch-npc.sh`
 
-These scripts may fetch or build stock `npc` from a pinned `yisier/nps` tag. They must not vendor `yisier/nps` source into this repository.
+These are historical acquisition placeholders. Current validation uses only official release binaries from pinned tags; do not read or build upstream implementation source for this work. They must not vendor `yisier/nps` source into this repository.
 
-Before Gate 5 starts, a pinned `yisier/nps` tag or version must be selected and documented here. `scripts/build-npc.sh` and `scripts/fetch-npc.sh` must not use `master` or `latest`. The scripts may clone or download into temporary, cache, or testbin locations, but must not vendor `yisier/nps` source into the Kavern repository.
+Before Gate 5 starts, a pinned `yisier/nps` tag or version must be selected and documented here. `scripts/build-npc.sh` and `scripts/fetch-npc.sh` must not use `master` or `latest`. Keep downloaded official binary assets in temporary, cache, or testbin locations; do not bring upstream source into this workflow or repository.
 
 Gate 5 pins stock `npc` compatibility testing to:
 
@@ -279,11 +310,11 @@ The 4A review packet must retain failures as well as final successful runs,
 shuffle seeds, count/race results, ownership assertions, and the scoped diff.
 Passing Go-peer tests is not self-approval to implement 4B.
 
-### Gate 6S-4B: Real Pinned TCP Robustness (Review Pending)
+### Gate 6S-4B: Historical Pinned v0.26.34 TCP Robustness (Passed)
 
-4A passed independent review on 2026-10-09 (local commit e69c133). 4B has
-separate real-binary tests; passing them is evidence for review, not self-approval
-or completion of the operational MVP.
+4A passed independent review on 2026-10-09 (local commit e69c133). 4B separately
+passed independent review on that date (local commit 2a4cb8a). The following
+real-binary robustness record retains its historical pinned v0.26.34 scope.
 
 The reviewed Linux amd64 NPC executable has SHA-256
 `13c12ffd3ebbab07b62cfb7e396d2290276a679f00ecb018b44f0db8e5fab2c7`.

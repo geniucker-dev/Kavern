@@ -250,11 +250,13 @@ may select a target address.
 - Never needs the raw `vkey` during connection authentication.
 - Isolates all legacy MD5 compatibility handling.
 - Does not define business rules.
-- Uses the source-informed, independently implemented pinned v0.26.34 wire contract in `docs/protocol/legacy-npc-v0.26.34.md`. This is not a clean-room implementation claim; it requires separate GPL/compliance review before closed-source commercial distribution.
+- Uses the source-informed, independently implemented v0.26.34 wire contract as the historical protocol baseline in `docs/protocol/legacy-npc-v0.26.34.md`. This is not a clean-room implementation claim; it requires separate GPL/compliance review before closed-source commercial distribution.
 
 ### Legacy npc Protocol Boundary
 
-The legacy gateway supports only the pinned stock `npc v0.26.34` bridge handshake and TCP tunnel compatibility described in `docs/protocol/legacy-npc-v0.26.34.md`. It uses one outer bridge handshake, three mux frame layouts, and nine mux flags. Kavern must not import, vendor, copy, or reuse upstream GPL implementation material. The gateway's internal implementation remains separate from business logic and KAPv1.
+The legacy gateway retains the bridge framing and bounded TCP tunnel protocol described in `docs/protocol/legacy-npc-v0.26.34.md`. Core/client declarations are opaque bytes: after the original signed-length checks (default 1..4096 per field), Kavern reads and discards them without literal-version admission, semver interpretation, normalization, logging, persistence or routing use. Strict `TST`, the single default five-second handshake deadline, fixed `md5("0.26.0")` hex reply, token/HMAC checks and post-authentication `main`/`chan` rules remain unchanged. It uses one outer bridge handshake, three mux frame layouts, and nine mux flags. Kavern must not import, vendor, copy, or reuse upstream GPL implementation material. The gateway's internal implementation remains separate from business logic and KAPv1.
+
+On 2026-10-12, a separately reviewed isolated candidate passed basic server-configuration TCP echo and complete application close with official Linux amd64 NPC 0.26.17, 0.26.27, 0.26.34 and 0.26.39, invoked with `-server` and `-vkey`. Each fresh case used one application connection, exact 1/64/65536-byte echo, END/EOF, actual main/current mux readiness, offline verification and complete process/listener/directory cleanup. The externally reconciled 37-file evidence manifest is `79c6c11bb6197532cf93c28b221818a452f4a82a8ed02834c1f8d0bb3de157ad` (`npc-opaque-metadata-execution`, retained outside the repository). This is limited functional evidence, not all features, all versions, performance or an indefinite-soak result. Earlier v0.26.34 robustness evidence is historical and does not extend to the other releases.
 
 The KAPv1 data path is `AgentSession -> CarrierPool -> smux -> kavern-agent`.
 The legacy path is `LegacyNpcSession -> LegacyMux -> Link metadata -> stock npc`.

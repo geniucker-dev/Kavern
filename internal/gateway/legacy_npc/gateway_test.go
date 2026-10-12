@@ -143,7 +143,7 @@ func TestHandshakeRejectsOversizedInput(t *testing.T) {
 	_ = client.Close()
 }
 
-func TestHandshakeRejectsPinnedVersionMismatch(t *testing.T) {
+func TestHandshakeAcceptsOpaqueDeclarationBeforeCredential(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
 		name          string
@@ -164,8 +164,9 @@ func TestHandshakeRejectsPinnedVersionMismatch(t *testing.T) {
 			payload := append([]byte("TST"), stockString(tt.coreVersion)...)
 			payload = append(payload, stockString(tt.clientVersion)...)
 			_, _ = client.Write(payload)
-			waitDone(t, ctx, done, ErrInvalidHandshake)
+			readStockServerAuthField(t, client)
 			_ = client.Close()
+			waitDone(t, ctx, done, ErrInvalidHandshake)
 		})
 	}
 }

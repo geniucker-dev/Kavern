@@ -14,7 +14,7 @@ Only server-configured TCP tunnels are in scope. Configuration/file/p2p/secret/r
 
 ## Outer Bridge Handshake
 
-The client sends raw `TST`, then signed little-endian int32 length-prefixed core version `0.26.0`, then signed little-endian int32 length-prefixed client version `0.26.34`.
+Historical pinned v0.26.34 clients send raw `TST`, signed little-endian int32 length-prefixed core declaration `0.26.0`, then client declaration `0.26.34`. Those recorded values describe that client, not current admission rules. Kavern now consumes both declarations as opaque bytes and discards them: each signed length must be positive and at most the configured limit (default 4096), and the entire handshake uses one default five-second deadline. Values are not interpreted, normalized, logged, persisted or used for routing. Strict `TST` and all token/HMAC/role checks remain. A zero/negative/oversize/truncated field is rejected before authentication; permissive behavior observed in stock NPS is not copied.
 
 The server writes exactly 32 raw lowercase ASCII hex bytes equal to `md5("0.26.0")`:
 
@@ -25,6 +25,12 @@ The server writes exactly 32 raw lowercase ASCII hex bytes equal to `md5("0.26.0
 The client sends exactly 32 lowercase ASCII hex bytes for `md5(vkey)`. The server validates this strict raw format before lookup. On authentication failure it writes exactly `vkey`, terminates the handshake, and does not read a role. On success it writes exactly `sucs`; the client then sends exactly four raw bytes, `main` or `chan`.
 
 The wire token is a legacy bearer boundary. Kavern derives its stored lookup key with HMAC-SHA256 and never logs or persists the raw token, raw `md5(vkey)`, or `vkey`.
+
+## Current Limited Client Evidence
+
+On 2026-10-12, a separately reviewed isolated candidate passed basic server-configuration TCP echo and complete application close with official Linux amd64 NPC 0.26.17, 0.26.27, 0.26.34 and 0.26.39, invoked with `-server` and `-vkey`. Each fresh case used one application connection, exact 1/64/65536-byte echo, END/EOF, actual main/current mux readiness, offline verification and complete process/listener/directory cleanup. The externally reconciled 37-file evidence manifest is `79c6c11bb6197532cf93c28b221818a452f4a82a8ed02834c1f8d0bb3de157ad` (`npc-opaque-metadata-execution`, retained outside the repository). This is limited functional evidence, not all features, all versions, performance or an indefinite-soak result. Earlier v0.26.34 robustness evidence is historical and does not extend to the other releases.
+
+The later client admission policy does not alter the historical mux facts below or enlarge their real-binary robustness scope.
 
 ## Mux Frames
 
