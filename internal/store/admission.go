@@ -236,3 +236,31 @@ func (o *ConfigOwner) legacyCurrentLocked(ctx context.Context, id domain.DeviceI
 	}
 	return nil
 }
+
+// WithNativeInterest is the memory-only renewal authority boundary. It does not
+// register a new session or refresh revoked interest; cleanup stays outside guards.
+func (o *ConfigOwner) WithNativeInterest(ctx, interest context.Context, id domain.DeviceID, apply func([]byte) error) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if e := ctx.Err(); e != nil {
+		return e
+	}
+	if o.closed {
+		return ErrConfigOwnerClosed
+	}
+	if o.uncertain {
+		return ErrCommitUncertain
+	}
+	if interest == nil {
+		return domain.ErrStaleAdmission
+	}
+	if o.work.Existing(interest, domain.WorkScope{DeviceID: id, SessionOwner: true, Policy: o.current.policies[id]}) == nil {
+		return domain.ErrStaleAdmission
+	}
+	_, secret, e := o.current.ResolveKAPv1DeviceForAuth(ctx, id)
+	if e != nil {
+		return e
+	}
+	defer clear(secret)
+	return apply(secret)
+}
