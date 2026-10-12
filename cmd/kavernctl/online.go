@@ -1,57 +1,21 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"github.com/geniucker-dev/kavern/internal/config"
 	"io"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"time"
 )
 
 func onlineHTTP(ctx context.Context, socket, method, path string, body []byte, dst any) error {
-	transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return config.DialAdmin(ctx, socket) }, DisableKeepAlives: true, MaxConnsPerHost: 1, ResponseHeaderTimeout: 5 * time.Second}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("administrator redirects forbidden") }}
-	request, e := http.NewRequestWithContext(ctx, method, "http://"+config.AdminHost+path, bytes.NewReader(body))
-	if e != nil {
-		return errors.New("invalid administrator request")
-	}
-	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	response, e := client.Do(request)
-	if e != nil {
-		return errors.New("administrator response unconfirmed; use the exact original request window and operation ID for lookup/retry")
-	}
-	defer response.Body.Close()
-	data, e := io.ReadAll(io.LimitReader(response.Body, config.MaxJSONBytes+1))
-	if e != nil || len(data) > config.MaxJSONBytes {
-		return errors.New("administrator response invalid or unconfirmed")
-	}
-	if response.StatusCode != 200 {
-		var failure config.AdminError
-		if config.DecodeJSON(bytes.NewReader(data), &failure) != nil {
-			return errors.New("administrator request failed")
-		}
-		switch failure.Code {
-		case "commit_uncertain", "closed", "capacity", "revision_conflict", "operation_expired_or_unknown", "operation_reuse", "record_conflict", "cascade_required", "not_found", "request_expired", "ownership_conflict", "invalid_request", "response_capacity":
-			return fmt.Errorf("administrator request: %s", failure.Code)
-		default:
-			return errors.New("administrator request failed")
-		}
-	}
-	if config.DecodeJSON(bytes.NewReader(data), dst) != nil {
-		return errors.New("administrator response invalid or unconfirmed")
-	}
-	return nil
+	client := config.NewAdminClient(socket, 1)
+	defer client.Close()
+	return client.Request(ctx, method, path, body, dst)
 }
 func mutationEndpoint(kind, device string) (string, string, error) {
 	switch kind {

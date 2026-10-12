@@ -23,11 +23,14 @@ func main() {
 	}
 }
 func run(args []string, out, diagnostics io.Writer) error {
+	if len(args) > 0 && args[0] == "ui" {
+		return runUI(args[1:], out, diagnostics)
+	}
 	if len(args) > 0 && args[0] == "online" {
 		return runOnline(args[1:], out, diagnostics)
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(out, "Kavern administration\nOnline: online --socket PATH <status|window|users|projects|devices|get-device|device-status|operation|recover|create-user|create-project|create-device|put-device|rotate-device|delete-device|retry>\nOffline commands: validate, init-state, add-device, rotate-device, add-tunnel, set-device-enabled, set-tunnel-enabled\nUse <command> -h for flags. Stop kavernd before changing state; restart to apply changes.")
+		fmt.Fprintln(out, "Kavern administration\nRead-only UI: ui --socket PATH\nOnline: online --socket PATH <status|window|users|projects|devices|get-device|device-status|operation|recover|create-user|create-project|create-device|put-device|rotate-device|delete-device|retry>\nOffline commands: validate, init-state, add-device, rotate-device, add-tunnel, set-device-enabled, set-tunnel-enabled\nUse <command> -h for flags. Stop kavernd before changing state; restart to apply changes.")
 		return nil
 	}
 	if args[0] == "version" {
