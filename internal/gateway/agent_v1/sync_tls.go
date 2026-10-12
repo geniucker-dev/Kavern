@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -40,6 +41,15 @@ func ownSyncTLS(ctx context.Context, conn *tls.Conn) func() {
 // ServeSyncControl is the opt-in, schema-1 TLS control adapter. It creates no
 // listener and is not wired into the current daemon command in this checkpoint.
 func (s *AuthService) ServeSyncControl(ctx context.Context, conn *tls.Conn, source NativeSnapshotSource, budget *SyncStagingBudget) error {
+	return s.serveSyncTransport(ctx, conn, source, budget, false)
+}
+
+// ServeSyncTransport dispatches authenticated schema-1 control/data roles on
+// one verified TLS endpoint. Current daemon command wiring is unchanged.
+func (s *AuthService) ServeSyncTransport(ctx context.Context, conn *tls.Conn, source NativeSnapshotSource, budget *SyncStagingBudget) error {
+	return s.serveSyncTransport(ctx, conn, source, budget, true)
+}
+func (s *AuthService) serveSyncTransport(ctx context.Context, conn *tls.Conn, source NativeSnapshotSource, budget *SyncStagingBudget, allowCarrier bool) error {
 	if conn == nil || source == nil {
 		return ErrInvalidInput
 	}
@@ -56,7 +66,22 @@ func (s *AuthService) ServeSyncControl(ctx context.Context, conn *tls.Conn, sour
 	if conn.ConnectionState().Version < tls.VersionTLS12 {
 		return ErrInvalidInput
 	}
-	start, err := readSyncAuth(conn)
+	payload, err := readSyncTransportPayload(conn)
+	if err != nil {
+		return err
+	}
+	var role struct {
+		Role string `json:"role"`
+	}
+	_ = json.Unmarshal(payload, &role)
+	if allowCarrier && role.Role == TransportRoleDataCarrier {
+		first, err := decodeSyncCarrier(payload)
+		if err != nil {
+			return err
+		}
+		return s.serveSyncCarrier(ctx, conn, first)
+	}
+	start, err := decodeSyncAuth(payload)
 	if err != nil {
 		if errors.Is(err, ErrSyncSchema) {
 			reject := authFrame("auth_reject")

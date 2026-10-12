@@ -68,6 +68,7 @@ type DeviceCredential struct {
 }
 
 type StreamOpenRequest struct {
+	Revision   ConfigRevision
 	TunnelID   TunnelID
 	Protocol   TunnelProtocol
 	TargetAddr string

@@ -32,19 +32,20 @@ type syncTunnel struct {
 	TargetAddr string                `json:"target_addr"`
 }
 type syncFrame struct {
-	Version     string                 `json:"version"`
-	SyncVersion int                    `json:"config_sync_version"`
-	Type        string                 `json:"type"`
-	DeviceID    domain.DeviceID        `json:"device_id"`
-	SessionID   domain.SessionID       `json:"session_id"`
-	Revision    *domain.ConfigRevision `json:"revision,omitempty"`
-	TransferID  *domain.ConfigRevision `json:"transfer_id,omitempty"`
-	Count       *uint16                `json:"count,omitempty"`
-	TotalBytes  *uint32                `json:"total_bytes,omitempty"`
-	Index       *uint16                `json:"index,omitempty"`
-	Policy      *syncPolicy            `json:"policy,omitempty"`
-	Tunnel      *syncTunnel            `json:"tunnel,omitempty"`
-	Code        string                 `json:"code,omitempty"`
+	Version      string                 `json:"version"`
+	SyncVersion  int                    `json:"config_sync_version"`
+	Type         string                 `json:"type"`
+	DeviceID     domain.DeviceID        `json:"device_id"`
+	SessionID    domain.SessionID       `json:"session_id"`
+	Revision     *domain.ConfigRevision `json:"revision,omitempty"`
+	TransferID   *domain.ConfigRevision `json:"transfer_id,omitempty"`
+	Count        *uint16                `json:"count,omitempty"`
+	TotalBytes   *uint32                `json:"total_bytes,omitempty"`
+	Index        *uint16                `json:"index,omitempty"`
+	Policy       *syncPolicy            `json:"policy,omitempty"`
+	Tunnel       *syncTunnel            `json:"tunnel,omitempty"`
+	CarrierCount *uint8                 `json:"carrier_count,omitempty"`
+	Code         string                 `json:"code,omitempty"`
 }
 type syncTuple struct {
 	DeviceID             domain.DeviceID
@@ -93,6 +94,8 @@ func decodeSyncPayload(data []byte) (syncFrame, error) {
 		keys = append(keys, "revision", "transfer_id", "count", "total_bytes")
 	case "config_ack":
 		keys = append(keys, "revision", "transfer_id")
+	case "ready", "ready_ok":
+		keys = append(keys, "revision", "transfer_id", "carrier_count")
 	case "config_reject":
 		keys = append(keys, "revision", "transfer_id", "code")
 	case "ping", "pong":
@@ -110,6 +113,11 @@ func decodeSyncPayload(data []byte) (syncFrame, error) {
 	}
 	if f.Type == "config_begin" || f.Type == "config_end" {
 		if f.Count == nil || *f.Count > config.MaxNativeTunnels || f.TotalBytes == nil || *f.TotalBytes == 0 || *f.TotalBytes > MaxSyncTransferBytes {
+			return f, ErrSyncTransfer
+		}
+	}
+	if f.Type == "ready" || f.Type == "ready_ok" {
+		if f.CarrierCount == nil || *f.CarrierCount < 1 || *f.CarrierCount > 4 {
 			return f, ErrSyncTransfer
 		}
 	}

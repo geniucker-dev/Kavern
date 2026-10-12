@@ -144,3 +144,20 @@ func (p *Pool) WaitReady(ctx context.Context, n int) error {
 		}
 	}
 }
+
+// LiveCount reports attached, nonclosed carriers; readiness notifications are
+// wakeups only, so callers recheck this count after any wait.
+func (p *Pool) LiveCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return 0
+	}
+	count := 0
+	for _, c := range p.carriers {
+		if !c.Closed() {
+			count++
+		}
+	}
+	return count
+}

@@ -46,20 +46,23 @@ type syncStage struct {
 	release         func()
 }
 
-// ConfigReceiver owns only session-local protocol application facts. It is not
-// wired into AgentDataLoop or readiness/routing in this checkpoint.
+// ConfigReceiver owns session-local application/readiness and opt-in carriers.
+// Production command routing remains outside this checkpoint.
 type ConfigReceiver struct {
-	mu           sync.Mutex
-	auth         SyncAuthResult
-	budget       *SyncStagingBudget
-	stage        *syncStage
-	applied      domain.NativeSnapshot
-	lastTransfer domain.ConfigRevision
-	ackDeadline  time.Time
-	closed       bool
-	running      bool
-	now          func() time.Time
-	timeout      time.Duration
+	mu            sync.Mutex
+	auth          SyncAuthResult
+	budget        *SyncStagingBudget
+	stage         *syncStage
+	applied       domain.NativeSnapshot
+	lastTransfer  domain.ConfigRevision
+	ackDeadline   time.Time
+	closed        bool
+	running       bool
+	ready         syncTuple
+	readyRequests chan syncReadyRequest
+	carriers      map[*SyncClientCarrier]struct{}
+	now           func() time.Time
+	timeout       time.Duration
 }
 
 func NewConfigReceiver(auth SyncAuthResult, budget *SyncStagingBudget) (*ConfigReceiver, error) {
@@ -69,9 +72,20 @@ func NewConfigReceiver(auth SyncAuthResult, budget *SyncStagingBudget) (*ConfigR
 	if budget == nil {
 		budget = processSyncBudget
 	}
-	return &ConfigReceiver{auth: auth, budget: budget, now: time.Now, timeout: SyncTransferTimeout}, nil
+	return &ConfigReceiver{auth: auth, budget: budget, now: time.Now, timeout: SyncTransferTimeout, readyRequests: make(chan syncReadyRequest, 1), carriers: make(map[*SyncClientCarrier]struct{})}, nil
 }
-func (r *ConfigReceiver) Close() { r.mu.Lock(); defer r.mu.Unlock(); r.closeLocked() }
+func (r *ConfigReceiver) Close() {
+	r.mu.Lock()
+	r.closeLocked()
+	owned := make([]*SyncClientCarrier, 0, len(r.carriers))
+	for c := range r.carriers {
+		owned = append(owned, c)
+	}
+	r.mu.Unlock()
+	for _, c := range owned {
+		_ = c.Close()
+	}
+}
 func (r *ConfigReceiver) closeLocked() {
 	if r.stage != nil {
 		r.stage.release()
@@ -80,6 +94,7 @@ func (r *ConfigReceiver) closeLocked() {
 	r.applied = domain.NativeSnapshot{}
 	r.ackDeadline = time.Time{}
 	r.closed = true
+	r.ready = syncTuple{}
 }
 func (r *ConfigReceiver) Snapshot() (domain.NativeSnapshot, bool) {
 	r.mu.Lock()
@@ -144,6 +159,7 @@ func (r *ConfigReceiver) acceptAt(f syncFrame, size int, started time.Time) (ack
 		return nil, ErrSyncDeadline
 	}
 	if f.Type == "config_begin" {
+		r.ready = syncTuple{}
 		if r.stage != nil || !r.ackDeadline.IsZero() || f.tuple().TransferID <= r.lastTransfer || f.tuple().Revision <= r.applied.Revision {
 			return nil, ErrSyncStale
 		}

@@ -87,19 +87,26 @@ func decodeSyncAuth(data []byte) (syncAuthFrame, error) {
 	return f, nil
 }
 func readSyncAuth(r io.Reader) (syncAuthFrame, error) {
-	var prefix [4]byte
-	if _, err := io.ReadFull(r, prefix[:]); err != nil {
-		return syncAuthFrame{}, err
-	}
-	n := binary.BigEndian.Uint32(prefix[:])
-	if n == 0 || n > MaxControlFrameBytes {
-		return syncAuthFrame{}, ErrSyncTransfer
-	}
-	data := make([]byte, int(n))
-	if _, err := io.ReadFull(r, data); err != nil {
+	data, err := readSyncTransportPayload(r)
+	if err != nil {
 		return syncAuthFrame{}, err
 	}
 	return decodeSyncAuth(data)
+}
+func readSyncTransportPayload(r io.Reader) ([]byte, error) {
+	var prefix [4]byte
+	if _, err := io.ReadFull(r, prefix[:]); err != nil {
+		return nil, err
+	}
+	n := binary.BigEndian.Uint32(prefix[:])
+	if n == 0 || n > MaxControlFrameBytes {
+		return nil, ErrSyncTransfer
+	}
+	data := make([]byte, int(n))
+	if _, err := io.ReadFull(r, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 func writeSyncAuth(w io.Writer, f syncAuthFrame) error {
 	data, err := json.Marshal(f)

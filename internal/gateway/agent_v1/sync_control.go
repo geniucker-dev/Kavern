@@ -42,7 +42,19 @@ func (s *AuthService) NewConfigServer(ctx context.Context, auth SyncAuthResult, 
 	if source == nil {
 		return nil, ErrInvalidInput
 	}
-	if err := s.withSyncSession(ctx, auth, func() error { return nil }); err != nil {
+	if err := s.withSyncSession(ctx, auth, func() error {
+		entry, ok := s.registry.lookup(auth.SessionID)
+		if !ok {
+			return ErrSessionNotFound
+		}
+		entry.session.mu.Lock()
+		defer entry.session.mu.Unlock()
+		if entry.session.syncData != nil {
+			return ErrInvalidInput
+		}
+		entry.session.syncData = &syncSessionData{service: s, auth: auth, source: source, changed: make(chan struct{})}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	if budget == nil {
@@ -233,14 +245,29 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 			flight.release()
 		}
 	}()
+	var pendingReady *syncReadyRequest
+	defer func() {
+		if pendingReady != nil {
+			pendingReady.result <- ErrSessionClosed
+		}
+	}()
 	var lastTuple syncTuple
 	var lastSnapshot domain.NativeSnapshot
 	var counter domain.ConfigRevision
+	var readyRequests <-chan syncReadyRequest
+	if receiver != nil {
+		readyRequests = receiver.readyRequests
+	}
 	var updates <-chan struct{}
 	if server != nil {
 		updates = server.updates
 	}
 	phaseDeadline := func() time.Time {
+		if pendingReady != nil {
+			if deadline, ok := pendingReady.ctx.Deadline(); ok {
+				return deadline
+			}
+		}
 		if flight != nil {
 			return flight.deadline
 		}
@@ -312,6 +339,14 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 		if err != nil {
 			return err
 		}
+		if err = server.service.withSyncSession(ctx, auth, func() error {
+			entry, _ := server.service.registry.lookup(auth.SessionID)
+			entry.session.syncController().install(plan.tuple, plan.snapshot)
+			return nil
+		}); err != nil {
+			release()
+			return err
+		}
 		flight = &syncFlight{plan: plan, deadline: time.Now().Add(timing.transfer), release: release}
 		return nil
 	}
@@ -335,6 +370,14 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 			if f.Type == "ping" {
 				return write(heartbeatFrame("pong", auth))
 			}
+			if f.Type == "ready" {
+				if err := server.service.markSyncReady(ctx, auth, f.tuple(), int(*f.CarrierCount)); err != nil {
+					return err
+				}
+				reply := scopedFrame("ready_ok", f.tuple())
+				reply.CarrierCount = f.CarrierCount
+				return write(reply)
+			}
 			if f.Type != "config_ack" {
 				return ErrSyncTransfer
 			}
@@ -347,13 +390,33 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 			if !time.Now().Before(flight.deadline) {
 				return ErrSyncDeadline
 			}
-			if err := server.service.withSyncSession(ctx, auth, func() error { server.mu.Lock(); server.applied = f.tuple().Revision; server.mu.Unlock(); return nil }); err != nil {
+			if err := server.service.withSyncSession(ctx, auth, func() error {
+				entry, _ := server.service.registry.lookup(auth.SessionID)
+				if err := entry.session.syncController().ack(f.tuple()); err != nil {
+					return err
+				}
+				server.mu.Lock()
+				server.applied = f.tuple().Revision
+				server.mu.Unlock()
+				return nil
+			}); err != nil {
 				return err
 			}
 			lastTuple, lastSnapshot = f.tuple(), flight.plan.snapshot
 			flight.release()
 			flight = nil
 			return startLatest()
+		}
+		if f.Type == "ready_ok" {
+			if pendingReady == nil || pendingReady.tuple != f.tuple() || pendingReady.ctx.Err() != nil {
+				return ErrSyncStale
+			}
+			if err := receiver.acceptReady(f.tuple(), int(*f.CarrierCount)); err != nil {
+				return err
+			}
+			pendingReady.result <- nil
+			pendingReady = nil
+			return nil
 		}
 		if f.Type == "pong" {
 			return nil
@@ -440,6 +503,18 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 				return io.EOF
 			default:
 				return io.EOF
+			}
+		case req := <-readyRequests:
+			if pendingReady != nil || req.ctx.Err() != nil {
+				req.result <- ErrSyncNotReady
+				continue
+			}
+			pendingReady = &req
+			frame := scopedFrame("ready", req.tuple)
+			count := uint8(req.count)
+			frame.CarrierCount = &count
+			if err := write(frame); err != nil {
+				return err
 			}
 		case <-updates:
 			if err := startLatest(); err != nil {

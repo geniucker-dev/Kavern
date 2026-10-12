@@ -39,16 +39,17 @@ type TCPDialer struct {
 }
 
 type AgentDataLoop struct {
-	Carrier     *carrier.Carrier
-	MaxHandlers int
-	Session     mux.Session
-	Targets     TargetResolver
-	Dialer      Dialer
-	Handlers    sync.WaitGroup
+	Carrier      *carrier.Carrier
+	MaxHandlers  int
+	Session      mux.Session
+	Targets      TargetResolver
+	Dialer       Dialer
+	Handlers     sync.WaitGroup
+	handleStream func(context.Context, mux.Stream) error
 }
 
 func (l *AgentDataLoop) Run(ctx context.Context) error {
-	if l.Session == nil || l.Targets == nil {
+	if l.Session == nil || (l.Targets == nil && l.handleStream == nil) {
 		return ErrInvalidInput
 	}
 	maxHandlers := l.MaxHandlers
@@ -118,7 +119,11 @@ func (l *AgentDataLoop) Run(ctx context.Context) error {
 			if lease != nil {
 				defer lease.Release()
 			}
-			_ = HandleAgentStream(ctx, stream, l.Targets, dialer)
+			if l.handleStream != nil {
+				_ = l.handleStream(ctx, stream)
+			} else {
+				_ = HandleAgentStream(ctx, stream, l.Targets, dialer)
+			}
 		}()
 	}
 }

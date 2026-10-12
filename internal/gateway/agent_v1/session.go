@@ -14,6 +14,7 @@ type agentSession struct {
 	id          domain.SessionID
 	deviceID    domain.DeviceID
 	syncVersion int
+	syncData    *syncSessionData
 	expiresAt   time.Time
 	now         func() time.Time
 
@@ -50,10 +51,8 @@ func (s *agentSession) OpenStream(ctx context.Context, req domain.StreamOpenRequ
 		_ = s.Close(context.Background())
 		return nil, ErrSessionClosed
 	}
-	// Sync sessions remain unroutable until the later stream-metadata/routing
-	// rollout; Slice B only establishes protocol application facts.
 	if s.syncVersion != 0 {
-		return nil, ErrSyncNotReady
+		return s.openSyncStream(ctx, req)
 	}
 	if req.TunnelID == "" {
 		return nil, ErrInvalidInput
