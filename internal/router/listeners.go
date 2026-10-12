@@ -170,7 +170,7 @@ func (s *ListenerService) serve(ctx context.Context, l *liveListener, failures c
 			defer l.workers.Done()
 			defer func() { <-s.slots }()
 			defer conn.Close()
-			routeCtx, cancel := context.WithTimeout(ctx, PublicRouteTimeout)
+			routeCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			callbackDone := make(chan struct{})
 			stop := context.AfterFunc(routeCtx, func() { defer close(callbackDone); _ = conn.Close() })
@@ -179,9 +179,6 @@ func (s *ListenerService) serve(ctx context.Context, l *liveListener, failures c
 					<-callbackDone
 				}
 			}()
-			if err := conn.SetDeadline(time.Now().Add(PublicRouteTimeout)); err != nil {
-				return
-			}
 			_ = s.routes.RouteListenerTCP(routeCtx, l.spec.id, l.generation, conn)
 		}()
 	}

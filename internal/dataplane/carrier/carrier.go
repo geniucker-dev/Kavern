@@ -56,6 +56,9 @@ func New(session mux.Session, cfg Config) (*Carrier, error) {
 }
 
 func (c *Carrier) OpenStream(ctx context.Context) (*Lease, error) {
+	return c.OpenStreamForLifetime(ctx, ctx)
+}
+func (c *Carrier) OpenStreamForLifetime(ctx, lifetime context.Context) (*Lease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -82,14 +85,23 @@ func (c *Carrier) OpenStream(ctx context.Context) (*Lease, error) {
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed || c.backendClosed() {
-		_ = stream.Close()
+	failure := ctx.Err()
+	if failure == nil {
+		failure = lifetime.Err()
+	}
+	if failure == nil && (c.closed || c.backendClosed()) {
+		failure = ErrCarrierClosed
+	}
+	if failure != nil {
 		c.reserved--
-		return nil, ErrCarrierClosed
+		c.mu.Unlock()
+		_ = stream.Close()
+		return nil, failure
 	}
 	c.active++
-	return &Lease{Stream: &boundedStream{Stream: stream, carrier: c, ctx: ctx}, release: c.release}, nil
+	lease := &Lease{Stream: newBoundedStream(stream, c, lifetime), release: c.release}
+	c.mu.Unlock()
+	return lease, nil
 }
 
 func (c *Carrier) Close() error {
@@ -207,6 +219,7 @@ type boundedStream struct {
 	mux.Stream
 	carrier   *Carrier
 	ctx       context.Context
+	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -241,6 +254,16 @@ func (s *boundedStream) Write(p []byte) (int, error) {
 	return total, nil
 }
 func (s *boundedStream) CloseWrite() error {
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+	done := make(chan struct{})
+	stop := context.AfterFunc(s.ctx, func() { defer close(done); _ = s.carrier.Close() })
+	defer func() {
+		if !stop() {
+			<-done
+		}
+	}()
 	if cw, ok := s.Stream.(interface{ CloseWrite() error }); ok {
 		return cw.CloseWrite()
 	}
@@ -266,7 +289,7 @@ func (c *Carrier) AdoptStream(ctx context.Context, stream mux.Stream) (*Lease, e
 	}
 	c.reserved++
 	c.active++
-	return &Lease{Stream: &boundedStream{Stream: stream, carrier: c, ctx: ctx}, release: c.release}, nil
+	return &Lease{Stream: newBoundedStream(stream, c, ctx), release: c.release}, nil
 }
 
 func (s *boundedStream) SetReadDeadline(t time.Time) error {
@@ -292,7 +315,12 @@ func (c *Carrier) backendClosed() bool {
 }
 
 func (s *boundedStream) Close() error {
-	s.closeOnce.Do(func() { s.closeErr = s.Stream.Close() })
+	s.closeOnce.Do(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		s.closeErr = s.Stream.Close()
+	})
 	return s.closeErr
 }
 
@@ -310,4 +338,9 @@ func (c *Carrier) Stats() Stats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return Stats{c.active, c.inflight, c.peakInflight, c.budgetWaits, c.budgetWaitDuration}
+}
+
+func newBoundedStream(stream mux.Stream, c *Carrier, lifetime context.Context) *boundedStream {
+	ctx, cancel := context.WithCancel(lifetime)
+	return &boundedStream{Stream: stream, carrier: c, ctx: ctx, cancel: cancel}
 }

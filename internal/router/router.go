@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"time"
 
 	"github.com/geniucker-dev/kavern/internal/domain"
 	"github.com/geniucker-dev/kavern/internal/session"
@@ -72,7 +73,7 @@ func (r *Router) RouteTCP(ctx context.Context, tunnel domain.Tunnel, inbound net
 			ctx = lease.Context
 		}
 	}
-	return r.routeView(ctx, view, inbound)
+	return r.routeView(ctx, view, inbound, false)
 }
 func (r *Router) RouteListenerTCP(ctx context.Context, id domain.TunnelID, generation uint64, inbound net.Conn) error {
 	owner, ok := r.store.(interface {
@@ -89,9 +90,9 @@ func (r *Router) RouteListenerTCP(ctx context.Context, id domain.TunnelID, gener
 		defer lease.Finish()
 		ctx = lease.Context
 	}
-	return r.routeView(ctx, view, inbound)
+	return r.routeView(ctx, view, inbound, true)
 }
-func (r *Router) routeView(ctx context.Context, view domain.RouteView, inbound net.Conn) error {
+func (r *Router) routeView(ctx context.Context, view domain.RouteView, inbound net.Conn, public bool) error {
 	tunnel := view.Tunnel
 	current, err := r.sessions.CurrentForDevice(ctx, view.Device.ID)
 	if err != nil {
@@ -99,6 +100,22 @@ func (r *Router) routeView(ctx context.Context, view domain.RouteView, inbound n
 	}
 	if inbound == nil {
 		return ErrInvalidInboundConnection
+	}
+	renewable := false
+	if capability, ok := current.(session.RenewableStreams); ok {
+		renewable = capability.RenewableStreams()
+	}
+	if public && !renewable {
+		limited, cancel := context.WithTimeout(ctx, PublicRouteTimeout)
+		defer cancel()
+		ctx = limited
+		deadline := time.Now().Add(PublicRouteTimeout)
+		if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
+			deadline = parentDeadline
+		}
+		if e := inbound.SetDeadline(deadline); e != nil {
+			return e
+		}
 	}
 	closed := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() { defer close(closed); _ = inbound.Close() })
@@ -124,6 +141,13 @@ func (r *Router) routeView(ctx context.Context, view domain.RouteView, inbound n
 	if err := ctx.Err(); err != nil {
 		_ = stream.Close()
 		return err
+	}
+	if renewable {
+		clock := session.NewClock()
+		if provider, ok := current.(interface{ StreamClock() session.Clock }); ok {
+			clock = provider.StreamClock()
+		}
+		return session.ProxyNative(ctx, inbound, stream, clock)
 	}
 	return session.ProxyBidirectional(ctx, inbound, stream)
 }

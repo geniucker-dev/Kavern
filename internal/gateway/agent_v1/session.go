@@ -254,3 +254,12 @@ func (s *agentSession) serverLease() *ServerLease {
 	defer s.mu.Unlock()
 	return s.lifecycle
 }
+
+func (s *agentSession) RenewableStreams() bool { return s.lifecycleVersion == LifecycleVersion }
+
+func (s *agentSession) StreamClock() session.Clock {
+	if lease := s.serverLease(); lease != nil {
+		return lease.clock
+	}
+	return session.NewClock()
+}

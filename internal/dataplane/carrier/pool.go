@@ -60,7 +60,8 @@ func (p *Pool) Add(carrier *Carrier) error {
 	return nil
 }
 
-func (p *Pool) Acquire(ctx context.Context) (*Lease, error) {
+func (p *Pool) Acquire(ctx context.Context) (*Lease, error) { return p.AcquireForLifetime(ctx, ctx) }
+func (p *Pool) AcquireForLifetime(ctx, lifetime context.Context) (*Lease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -85,7 +86,7 @@ func (p *Pool) Acquire(ctx context.Context) (*Lease, error) {
 			return nil, err
 		}
 		carrier := carriers[(start+i)%len(carriers)]
-		lease, err := carrier.OpenStream(ctx)
+		lease, err := carrier.OpenStreamForLifetime(ctx, lifetime)
 		if err == nil {
 			return lease, nil
 		}

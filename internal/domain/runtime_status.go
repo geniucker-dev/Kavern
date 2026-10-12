@@ -6,5 +6,6 @@ type AgentRuntimeStatus struct {
 	Protocol        AgentProtocol  `json:"protocol,omitempty"`
 	AppliedRevision ConfigRevision `json:"applied_revision,omitempty"`
 	Ready           bool           `json:"ready"`
+	RenewalCount    uint64         `json:"renewal_count,omitempty"`
 	Carriers        int            `json:"carriers"`
 }

@@ -32,6 +32,13 @@ func (s *AuthService) DeviceRuntimeStatus(ctx context.Context, id domain.DeviceI
 	if e = s.withSyncSession(ctx, auth, func() error { return nil }); e != nil {
 		return domain.AgentRuntimeStatus{}
 	}
+	if lease := native.serverLease(); lease != nil {
+		lease.mu.Lock()
+		if lease.generation > 0 {
+			result.RenewalCount = uint64(lease.generation - 1)
+		}
+		lease.mu.Unlock()
+	}
 	result.AppliedRevision = applied.Revision
 	result.Carriers = native.pool.LiveCount()
 	if ready == applied && ready.Revision != 0 {

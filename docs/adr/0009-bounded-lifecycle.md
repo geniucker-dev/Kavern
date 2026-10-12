@@ -1,8 +1,9 @@
 # ADR 0009: Bounded renewable native lifetime
 
 Status: design accepted; L1 independently accepted and committed as
-`5cd497d4d7d775ae0f2f14878480afae28ce864a`. L2 command/control integration is
-a candidate for independent review. Route/proxy adoption remains paused.
+`5cd497d4d7d775ae0f2f14878480afae28ce864a`. L2 command/control integration was independently accepted and committed as
+`a9e9cbdb1821a8a673a74c6614685e68241f4335`. L3 native route/proxy adoption is a
+candidate for independent review; WebUI remains outside this gate.
 Baseline: `e442fac00ed33ddfe13370c0e1552f8c08f2e83c` (accepted M2).
 
 ## Requirements and current evidence
@@ -315,3 +316,72 @@ or revoked authority even with delayed timer/dispatcher cleanup. It releases bot
 guards before terminal cleanup; a live carrier count or cached ready tuple cannot
 supply missing authority. Permanent regressions and the reviewer's unchanged four
 reproductions cover each correction. L2 remains uncommitted until independent GO.
+
+## L3 native route/proxy candidate boundary
+
+Public listener handlers retain their cancellation/ownership context without
+setting a universal route age. The router resolves the current AgentSession and
+uses an internal `RenewableStreams` lifetime capability. For renewable sessions it
+adds neither the old five-minute context nor the inbound socket age deadline.
+For nonrenewable public routes it retains both five-minute limits. Direct RouteTCP
+continues to accept the caller's lifetime, and the existing experimental public
+route helper remains explicitly age-bounded. The router does not inspect wire
+versions or authenticate by capability; native OpenStream still rechecks current
+session/device/credential/lease and target scope before admitting a stream.
+
+A native server open has a separate five-second mux-open/metadata budget. Carrier
+acquisition takes distinct opening and established-lifetime contexts; a completed
+opening context cannot cancel the stream. A late backend result is closed outside
+carrier guards and cannot emit metadata. A native agent has one independent
+five-second metadata/dial budget. Metadata reads retain their bounded parser/read
+progress and temporary socket read deadline, then clear it. Dial respects that
+remaining phase and device/tunnel cancellation; a late connection closes. Successful
+phase handoff detaches and joins the phase-I/O abort callback before canceling the
+phase context. No phase timer/context/socket deadline is retained by proxy I/O.
+Phase observation checks monotonic expiry itself even when its timer callback lags.
+There is no target-connected acknowledgement or guarantee in successful server
+OpenStream; target greetings/receipts are explicit evidence in the acceptance tests.
+
+`ProxyNative` uses at most one five-second operation timer in each copy direction
+for writes and directional CloseWrite. Timers belong to that operation and cannot
+close a later operation after completion. A stalled write, failed or stalled
+CloseWrite, or hard read error closes both endpoints and joins both copies. A
+progress timeout stays identifiable even when the other copy reports socket close
+first. Successful EOF performs bounded CloseWrite and preserves the reverse response
+until its EOF. Quiet reads have no idle or absolute-age budget; live authority and
+cancellation own the flow. The historical proxy and schema-only agent phases remain
+for nonrenewable peers. Carrier byte/stream/buffer caps and handler/ownership bounds
+stay. Per-stream cancellation releases an inflight-budget waiter; active blocked
+backend I/O may retire its carrier to interrupt the backend's shared writer, after
+which existing readiness/reconnect handling creates fresh synchronization.
+
+The constructor clock/timer contract is shared with lease state, with no environment,
+bootstrap, CLI, management or wire clock controls. A redacted sampled renewal count
+supports real-process evidence; it is neither a bearer nor a readiness proof.
+
+L3 deterministic acceptance runs actual public ListenerService and Router admission,
+our mux/carrier peers, authenticated renewable control and real local target sockets.
+One continuously exchanging connection and a second quiet connection keep their
+original target identities through 125 renewals over a virtual hour with unchanged
+desired revision, no public age context/socket deadline and no retained phase timer.
+The old session timestamp is already expired before opening, demonstrating that it
+cannot supply native lifetime. Revocation closes both targets and joins ownership.
+Separate listener regressions prove nonrenewable context and socket age limits;
+proxy regressions prove blocked writes/CloseWrite, cancellation, quiet reads and
+byte-exact TCP request-EOF/response EOF. Late mux/dial, stalled metadata and inflight
+waiter tests cover phase/resource cleanup and close outside guards.
+
+The actual-process smoke uses only our race-built kavernd/kavern-agent/kavernctl,
+synthetic temporary state/credentials/CA and loopback targets. Eleven receipts over
+approximately 100 seconds use one target-confirmed connection, unchanged desired and
+applied revision, and at least three renewals. Device disable closes that stream;
+re-enable authenticates a new lease, installs the new full snapshot and creates a
+new application connection. Processes/readers/target workers join, state lock and
+admin socket release, and listeners are absent at the terminal result. Both complete
+ordinary and race suites execute this smoke along with existing local process and
+legacy own-peer regressions. Real external NPC binaries, deployment and WebUI are
+outside L3. Existing native performance baseline artifacts remain unchanged; this
+is lifecycle/resource acceptance, not a new performance claim.
+
+L3 remains uncommitted until its files, frozen diff and final test/process output
+pass independent review. WebUI may start only after that GO.
