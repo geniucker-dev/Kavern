@@ -20,7 +20,11 @@ func ProxyBidirectional(ctx context.Context, left, right io.ReadWriteCloser) err
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errCh := make(chan error, 2)
+	type copyOutcome struct {
+		err   error
+		fatal bool
+	}
+	errCh := make(chan copyOutcome, 2)
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
@@ -35,10 +39,19 @@ func ProxyBidirectional(ctx context.Context, left, right io.ReadWriteCloser) err
 
 	copyOne := func(dst, src io.ReadWriteCloser) {
 		_, err := io.Copy(dst, src)
-		if cw, ok := dst.(closeWriter); ok {
-			_ = cw.CloseWrite()
+		err = normalizeCopyError(err)
+		fatal := err != nil
+		var timeout net.Error
+		// Normal completion and a directional timeout can preserve a response.
+		// Other hard errors must not block while trying to send directional EOF.
+		if err == nil || (errors.As(err, &timeout) && timeout.Timeout()) {
+			if cw, ok := dst.(closeWriter); ok {
+				if closeErr := cw.CloseWrite(); closeErr == nil && err != nil {
+					fatal = false
+				}
+			}
 		}
-		errCh <- normalizeCopyError(err)
+		errCh <- copyOutcome{err: err, fatal: fatal}
 	}
 
 	go copyOne(right, left)
@@ -46,8 +59,12 @@ func ProxyBidirectional(ctx context.Context, left, right io.ReadWriteCloser) err
 
 	var first error
 	for i := 0; i < 2; i++ {
-		if err := <-errCh; err != nil && first == nil {
-			first = err
+		outcome := <-errCh
+		if outcome.err != nil && first == nil {
+			first = outcome.err
+		}
+		if outcome.fatal {
+			closeBoth()
 		}
 	}
 	closeBoth()
