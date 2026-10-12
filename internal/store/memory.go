@@ -25,6 +25,7 @@ type MemoryStore struct {
 	revisions    map[domain.DeviceID]domain.ConfigRevision
 	policies     map[domain.DeviceID]domain.NativePolicy
 	stateVersion int
+	management   managementState
 
 	now func() time.Time
 }
@@ -52,6 +53,9 @@ func (s *MemoryStore) CreateUser(ctx context.Context, user domain.User) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.users[user.ID]; exists {
+		return ErrRecordConflict
+	}
 	s.users[user.ID] = user
 	return nil
 }
@@ -75,6 +79,9 @@ func (s *MemoryStore) CreateProject(ctx context.Context, project domain.Project)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.projects[project.ID]; exists {
+		return ErrRecordConflict
+	}
 	s.projects[project.ID] = project
 	return nil
 }

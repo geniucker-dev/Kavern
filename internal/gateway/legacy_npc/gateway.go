@@ -133,6 +133,22 @@ func (g *Gateway) ServeConn(ctx context.Context, conn net.Conn) error {
 		_ = conn.Close()
 		return err
 	}
+	if owner, ok := g.store.(legacyOwner); ok {
+		lease, err := owner.AcquireLegacyInterest(ctx, result.deviceID, result.lookupKey)
+		if err != nil {
+			_ = conn.Close()
+			return err
+		}
+		defer lease.Finish()
+		ctx = context.WithValue(lease.Context, legacyCredentialContextKey{}, result.lookupKey)
+		stopped := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() { defer close(stopped); _ = conn.Close() })
+		defer func() {
+			if !stop() {
+				<-stopped
+			}
+		}()
+	}
 	switch result.connType {
 	case connTypeMain:
 		return g.serveMain(ctx, conn, result.deviceID)
@@ -192,7 +208,41 @@ func (g *Gateway) serveMain(ctx context.Context, conn net.Conn, deviceID domain.
 		}
 		return joinLegacyErrors(finishErr, ctx.Err())
 	}
-	attachErr := g.sessions.Attach(legacySession.lifecycleCtx, legacySession)
+	var attachErr error
+	if _, owned := g.store.(legacyOwner); owned {
+		publisher, ok := g.sessions.(interface {
+			Publish(context.Context, session.AgentSession) (session.AgentSession, error)
+		})
+		if !ok {
+			attachErr = ErrInvalidConfig
+		} else {
+			var replaced session.AgentSession
+			attachErr = g.withPublication(legacySession.lifecycleCtx, deviceID, func() error {
+				var err error
+				replaced, err = publisher.Publish(legacySession.lifecycleCtx, legacySession)
+				return err
+			})
+			if attachErr == nil {
+				// Revocation must close/detach this publication before predecessor close can block.
+				stopped := make(chan struct{})
+				stop := context.AfterFunc(legacySession.lifecycleCtx, func() {
+					defer close(stopped)
+					_ = legacySession.Close(context.Background())
+					_ = g.detachSessionForCleanup(context.Background(), sessionID)
+				})
+				defer func() {
+					if !stop() {
+						<-stopped
+					}
+				}()
+				if replaced != nil {
+					_ = replaced.Close(context.Background())
+				}
+			}
+		}
+	} else {
+		attachErr = g.sessions.Attach(legacySession.lifecycleCtx, legacySession)
+	}
 	managerCurrent, currentErr := g.currentSessionForCleanup(ctx, deviceID)
 	if attachErr != nil {
 		lifecycleCanceled := legacySession.lifecycleCtx.Err() != nil
@@ -269,7 +319,13 @@ func (g *Gateway) serveChan(ctx context.Context, conn net.Conn, deviceID domain.
 		_ = conn.Close()
 		return err
 	}
-	generation, oldMux, err := runtime.installMux(mux)
+	var generation uint64
+	var oldMux *LegacyMux
+	err = g.withPublication(ctx, deviceID, func() error {
+		var installErr error
+		generation, oldMux, installErr = runtime.installMux(mux)
+		return installErr
+	})
 	if err != nil {
 		if errors.Is(err, ErrLegacyMuxAlreadyInstalled) {
 			return err
@@ -335,4 +391,18 @@ func generateSessionID() (domain.SessionID, error) {
 		return "", err
 	}
 	return domain.SessionID(base64.RawURLEncoding.EncodeToString(raw)), nil
+}
+
+type legacyCredentialContextKey struct{}
+type legacyOwner interface {
+	AcquireLegacyInterest(context.Context, domain.DeviceID, string) (*session.WorkLease, error)
+	WithLegacyPublication(context.Context, domain.DeviceID, string, func() error) error
+}
+
+func (g *Gateway) withPublication(ctx context.Context, id domain.DeviceID, publish func() error) error {
+	if owner, ok := g.store.(legacyOwner); ok {
+		key, _ := ctx.Value(legacyCredentialContextKey{}).(string)
+		return owner.WithLegacyPublication(ctx, id, key, publish)
+	}
+	return publish()
 }

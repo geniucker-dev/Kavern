@@ -84,6 +84,7 @@ func projectSnapshot(c domain.DeviceConfiguration) (domain.NativeSnapshot, error
 func (s *MemoryStore) cloneLocked() *MemoryStore {
 	next := NewMemoryStore()
 	next.stateVersion, next.now = s.stateVersion, s.now
+	next.management = s.management.clone()
 	for k, v := range s.users {
 		next.users[k] = v
 	}
@@ -121,6 +122,9 @@ func (s *MemoryStore) cloneLocked() *MemoryStore {
 // must already agree exactly with the complete candidate. Native admission
 // bounds are separate so v1 migration can preserve previously valid records.
 func (s *MemoryStore) validateState(nativeBounds bool) error {
+	if err := s.management.validate(s); err != nil {
+		return err
+	}
 	if len(s.devices) != len(s.revisions) || len(s.devices) != len(s.policies) {
 		return ErrInvalidState
 	}

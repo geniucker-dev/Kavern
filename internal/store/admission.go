@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"time"
 
@@ -140,12 +141,14 @@ func (o *ConfigOwner) ChangeSignal() <-chan struct{} {
 }
 func (o *ConfigOwner) signalLocked() { close(o.changed); o.changed = make(chan struct{}) }
 func (o *ConfigOwner) publishLocked(next *MemoryStore) []*session.WorkLease {
+	prior := o.current
+	credentialChanges := changedCredentials(prior, next)
 	o.current = next
 	o.invalidateListenersLocked()
 	o.signalLocked()
 	return o.work.Collect(func(scope domain.WorkScope) bool {
 		device, ok := next.devices[scope.DeviceID]
-		if !ok || !device.Enabled {
+		if !ok || !device.Enabled || credentialChanges[scope.DeviceID] {
 			return true
 		}
 		if scope.SessionOwner {
@@ -162,4 +165,74 @@ func cleanupOwned(leases []*session.WorkLease) error {
 	ctx, cancel := context.WithTimeout(context.Background(), ownedCleanupTimeout)
 	defer cancel()
 	return session.CancelAndJoin(ctx, leases)
+}
+
+// Credential rotation revokes every device-owned lease, including pending legacy interests.
+func changedCredentials(a, b *MemoryStore) map[domain.DeviceID]bool {
+	changed := map[domain.DeviceID]bool{}
+	for id, secret := range a.kapv1Secret {
+		if !bytes.Equal(secret, b.kapv1Secret[id]) {
+			changed[id] = true
+		}
+	}
+	for id, secret := range b.kapv1Secret {
+		if !bytes.Equal(secret, a.kapv1Secret[id]) {
+			changed[id] = true
+		}
+	}
+	for id, c := range a.credentials {
+		if other, ok := b.credentials[id]; !ok || c != other {
+			changed[c.DeviceID] = true
+			if ok {
+				changed[other.DeviceID] = true
+			}
+		}
+	}
+	for id, c := range b.credentials {
+		if other, ok := a.credentials[id]; !ok || c != other {
+			changed[c.DeviceID] = true
+			if ok {
+				changed[other.DeviceID] = true
+			}
+		}
+	}
+	return changed
+}
+
+func (o *ConfigOwner) AcquireLegacyInterest(ctx context.Context, id domain.DeviceID, key string) (*session.WorkLease, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if err := o.legacyCurrentLocked(ctx, id, key); err != nil {
+		return nil, err
+	}
+	return o.work.Register(ctx, domain.WorkScope{DeviceID: id, SessionOwner: true, Policy: o.current.policies[id]})
+}
+
+// The callback publishes memory only; resource close and joins happen outside this guard.
+func (o *ConfigOwner) WithLegacyPublication(ctx context.Context, id domain.DeviceID, key string, publish func() error) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if err := o.legacyCurrentLocked(ctx, id, key); err != nil {
+		return err
+	}
+	if o.work.Existing(ctx, domain.WorkScope{DeviceID: id, SessionOwner: true, Policy: o.current.policies[id]}) == nil {
+		return domain.ErrStaleAdmission
+	}
+	return publish()
+}
+func (o *ConfigOwner) legacyCurrentLocked(ctx context.Context, id domain.DeviceID, key string) error {
+	if o.closed {
+		return ErrConfigOwnerClosed
+	}
+	if o.uncertain {
+		return ErrCommitUncertain
+	}
+	d, err := o.current.ResolveLegacyDeviceForAuth(ctx, key)
+	if err != nil {
+		return err
+	}
+	if d.ID != id {
+		return domain.ErrStaleAdmission
+	}
+	return nil
 }

@@ -30,6 +30,7 @@ type deviceConfigState struct {
 }
 type stateFile struct {
 	Version        int
+	Management     *managementState `json:",omitempty"`
 	Users          []domain.User
 	Projects       []domain.Project
 	Devices        []domain.Device
@@ -81,6 +82,15 @@ func privateFile(path string) error {
 	return nil
 }
 func (s *MemoryStore) SaveState(path string, key []byte) error {
+	// Offline rewrites also invalidate stale management windows, including no-op rewrites.
+	s.mu.Lock()
+	if s.stateVersion == 3 {
+		if err := s.management.advance(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
+	s.mu.Unlock()
 	data, err := s.encodeState(key)
 	if err != nil {
 		return err
@@ -95,10 +105,14 @@ func (s *MemoryStore) encodeState(key []byte) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	state := stateFile{Version: s.stateVersion}
+	if s.stateVersion == 3 {
+		copy := s.management.clone()
+		state.Management = &copy
+	}
 	if err := s.validateState(false); err != nil {
 		return nil, err
 	}
-	if s.stateVersion == 2 {
+	if s.stateVersion >= 2 {
 		for id := range s.devices {
 			state.Configurations = append(state.Configurations, deviceConfigState{DeviceID: id, Revision: s.revisions[id], Policy: s.policies[id]})
 		}
@@ -172,11 +186,19 @@ func LoadStateWithNativePolicy(path string, key []byte, defaults domain.NativePo
 	if err = config.DecodeJSON(f, &state); err != nil {
 		return nil, err
 	}
-	if state.Version != 1 && state.Version != 2 {
+	if state.Version != 1 && state.Version != 2 && state.Version != 3 {
 		return nil, ErrInvalidState
 	}
 	s := NewMemoryStore()
 	s.stateVersion = state.Version
+	if state.Version == 3 {
+		if state.Management == nil {
+			return nil, ErrInvalidState
+		}
+		s.management = state.Management.clone()
+	} else if state.Management != nil {
+		return nil, ErrInvalidState
+	}
 	for _, v := range state.Users {
 		if !config.ValidID(string(v.ID)) {
 			return nil, ErrInvalidState

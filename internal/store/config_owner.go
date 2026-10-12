@@ -26,10 +26,13 @@ type configRequest struct {
 	changes          []domain.DeviceConfiguration
 	migrate, recover bool
 	result           chan configResult
+	mutation         *Mutation
+	legacyKey        []byte
 }
 type configResult struct {
-	revisions map[domain.DeviceID]domain.ConfigRevision
-	err       error
+	revisions      map[domain.DeviceID]domain.ConfigRevision
+	err            error
+	mutationResult MutationResult
 }
 
 // Shutdown's abort check must be synchronous. AfterFunc closes the combined
@@ -274,6 +277,9 @@ func (o *ConfigOwner) process(ctx context.Context, req configRequest) configResu
 	if uncertain {
 		return configResult{err: ErrCommitUncertain}
 	}
+	if req.mutation != nil {
+		return o.processMutation(ctx, current, *req.mutation, req.legacyKey)
+	}
 	// Validate the whole request before inserting into the candidate map: an ID
 	// absent from current state can still collide across requested devices.
 	requestedTunnels := make(map[domain.TunnelID]struct{})
@@ -335,7 +341,7 @@ func (o *ConfigOwner) process(ctx context.Context, req configRequest) configResu
 		}
 		revisions[id] = next.revisions[id]
 	}
-	if !changed && (!req.migrate || next.stateVersion == 2) {
+	if !changed && (!req.migrate || next.stateVersion >= 2) {
 		return configResult{revisions: revisions}
 	}
 	next.listeners = make(map[domain.ListenerRef]domain.TunnelID, len(next.tunnels))
@@ -345,10 +351,23 @@ func (o *ConfigOwner) process(ctx context.Context, req configRequest) configResu
 		}
 		next.listeners[tunnel.Listener] = id
 	}
+	if err := retainDeletedTunnels(current, next); err != nil {
+		return configResult{err: err}
+	}
 	if err := next.validateState(!req.migrate); err != nil {
 		return configResult{err: err}
 	}
-	next.stateVersion = 2
+	if next.stateVersion == 3 {
+		if err := next.management.advance(); err != nil {
+			return configResult{err: err}
+		}
+	}
+	return o.persistCandidate(ctx, next, revisions)
+}
+func (o *ConfigOwner) persistCandidate(ctx context.Context, next *MemoryStore, revisions map[domain.DeviceID]domain.ConfigRevision) configResult {
+	if next.stateVersion < 2 {
+		next.stateVersion = 2
+	}
 	data, err := next.encodeState(o.key)
 	if err == nil {
 		err = writeState(ctx, o.path, data, o.files)

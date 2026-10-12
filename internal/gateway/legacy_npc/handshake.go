@@ -26,8 +26,9 @@ const (
 )
 
 type handshakeResult struct {
-	connType string
-	deviceID domain.DeviceID
+	connType  string
+	deviceID  domain.DeviceID
+	lookupKey string
 }
 
 func (g *Gateway) readHandshake(ctx context.Context, conn net.Conn) (handshakeResult, error) {
@@ -61,10 +62,11 @@ func (g *Gateway) readStockHandshake(ctx context.Context, conn net.Conn) (handsh
 		return handshakeResult{}, err
 	}
 	var tokenBytes [32]byte
+	defer clear(tokenBytes[:])
 	if _, err := io.ReadFull(conn, tokenBytes[:]); err != nil {
 		return handshakeResult{}, ErrInvalidHandshake
 	}
-	deviceID, err := g.resolveLegacyToken(ctx, tokenBytes[:])
+	deviceID, lookupKey, err := g.resolveLegacyCredential(ctx, tokenBytes[:])
 	if err != nil {
 		_ = writeAll(conn, []byte("vkey"))
 		return handshakeResult{}, ErrInvalidHandshake
@@ -80,26 +82,30 @@ func (g *Gateway) readStockHandshake(ctx context.Context, conn net.Conn) (handsh
 	if connType != connTypeMain && connType != connTypeChan {
 		return handshakeResult{}, ErrUnsupportedConnection
 	}
-	return handshakeResult{connType: connType, deviceID: deviceID}, nil
+	return handshakeResult{connType: connType, deviceID: deviceID, lookupKey: lookupKey}, nil
 }
 
 func (g *Gateway) resolveLegacyToken(ctx context.Context, token []byte) (domain.DeviceID, error) {
+	id, _, err := g.resolveLegacyCredential(ctx, token)
+	return id, err
+}
+func (g *Gateway) resolveLegacyCredential(ctx context.Context, token []byte) (domain.DeviceID, string, error) {
 	if !isStrictLegacyWireToken(token) {
-		return "", ErrInvalidHandshake
+		return "", "", ErrInvalidHandshake
 	}
 	normalized, err := security.NormalizeLegacyWireToken(string(token))
 	if err != nil {
-		return "", ErrInvalidHandshake
+		return "", "", ErrInvalidHandshake
 	}
 	lookupKey, err := security.LegacyLookupKey(g.serverSecret, normalized)
 	if err != nil {
-		return "", ErrInvalidHandshake
+		return "", "", ErrInvalidHandshake
 	}
 	device, err := g.store.ResolveLegacyDeviceForAuth(ctx, lookupKey)
 	if err != nil {
-		return "", ErrInvalidHandshake
+		return "", "", ErrInvalidHandshake
 	}
-	return device.ID, nil
+	return device.ID, lookupKey, nil
 }
 
 func readLengthPrefixedString(r io.Reader, max int) (string, error) {
