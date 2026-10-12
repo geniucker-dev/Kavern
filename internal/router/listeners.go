@@ -71,6 +71,7 @@ type ListenerService struct {
 	retryBase, retryMax time.Duration
 	mu                  sync.Mutex
 	running             bool
+	started             chan struct{}
 	status              map[domain.TunnelID]ListenerStatus
 	changed             chan struct{}
 	failures            chan listenerFailure
@@ -89,8 +90,9 @@ func NewListenerService(source ListenerSource, routes ListenerRouter, slots chan
 	}
 	return &ListenerService{source: source, routes: routes, slots: slots, listen: func(ctx context.Context, address string) (net.Listener, error) {
 		return (&net.ListenConfig{}).Listen(ctx, "tcp", address)
-	}, retryBase: 100 * time.Millisecond, retryMax: 5 * time.Second, status: make(map[domain.TunnelID]ListenerStatus), changed: make(chan struct{}), failures: make(chan listenerFailure, MaxListeners), failureWake: make(chan struct{}, 1)}, nil
+	}, retryBase: 100 * time.Millisecond, retryMax: 5 * time.Second, started: make(chan struct{}), status: make(map[domain.TunnelID]ListenerStatus), changed: make(chan struct{}), failures: make(chan listenerFailure, MaxListeners), failureWake: make(chan struct{}, 1)}, nil
 }
+func (s *ListenerService) Started() <-chan struct{} { return s.started }
 func (s *ListenerService) Changed() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -328,6 +330,7 @@ func (s *ListenerService) Run(ctx context.Context) error {
 		s.setStatus(status)
 		return nil
 	}
+	initial := true
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -337,6 +340,10 @@ func (s *ListenerService) Run(ctx context.Context) error {
 				return nil
 			}
 			return err
+		}
+		if initial {
+			close(s.started)
+			initial = false
 		}
 		var deadline time.Time
 		for _, r := range retries {

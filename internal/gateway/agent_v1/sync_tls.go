@@ -39,13 +39,13 @@ func ownSyncTLS(ctx context.Context, conn *tls.Conn) func() {
 }
 
 // ServeSyncControl is the opt-in, schema-1 TLS control adapter. It creates no
-// listener and is not wired into the current daemon command in this checkpoint.
+// listener; the daemon assembly owns listening and transport dispatch.
 func (s *AuthService) ServeSyncControl(ctx context.Context, conn *tls.Conn, source NativeSnapshotSource, budget *SyncStagingBudget) error {
 	return s.serveSyncTransport(ctx, conn, source, budget, false)
 }
 
 // ServeSyncTransport dispatches authenticated schema-1 control/data roles on
-// one verified TLS endpoint. Current daemon command wiring is unchanged.
+// one verified TLS endpoint used by the synchronized daemon assembly.
 func (s *AuthService) ServeSyncTransport(ctx context.Context, conn *tls.Conn, source NativeSnapshotSource, budget *SyncStagingBudget) error {
 	return s.serveSyncTransport(ctx, conn, source, budget, true)
 }
@@ -230,14 +230,27 @@ func (c *ownedSyncTLS) Close() error { c.cleanup(); return nil }
 // OpenBootstrapControl resolves only bootstrap identity/trust references. It
 // does not load targets, negotiate local carrier overrides, or create carriers.
 func OpenBootstrapControl(ctx context.Context, cfg config.NativeBootstrap) (*ConfigReceiver, net.Conn, error) {
+	secret, trust, err := bootstrapMaterial(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer clear(secret)
+	return openBootstrapWithMaterial(ctx, cfg, secret, trust)
+}
+func bootstrapMaterial(cfg config.NativeBootstrap) ([]byte, *tls.Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, err
 	}
 	secret, err := base64.RawURLEncoding.DecodeString(os.Getenv(cfg.SecretEnv))
+	success := false
+	defer func() {
+		if !success {
+			clear(secret)
+		}
+	}()
 	if err != nil || len(secret) != 32 {
 		return nil, nil, ErrInvalidInput
 	}
-	defer clear(secret)
 	f, err := os.Open(cfg.CAFile)
 	if err != nil {
 		return nil, nil, err
@@ -254,6 +267,11 @@ func OpenBootstrapControl(ctx context.Context, cfg config.NativeBootstrap) (*Con
 	trust := config.DefaultTLSConfig()
 	trust.RootCAs = roots
 	trust.ServerName = cfg.ServerName
+	success = true
+	return secret, trust, nil
+}
+func openBootstrapWithMaterial(ctx context.Context, cfg config.NativeBootstrap, secret []byte, trust *tls.Config) (*ConfigReceiver, net.Conn, error) {
+	trust = trust.Clone()
 	deadline := time.Now().Add(syncHandshakeTimeout)
 	dialCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()

@@ -185,3 +185,59 @@ this assembly into native commands. No upstream source or external NPC binary
 execution, deployment, real credential provisioning or new performance claim is
 part of this checkpoint. Normal existing legacy gateway/command tests remain
 regression scope; real-NPC evidence retains its historical limits.
+
+## Slice C3: coordinated native commands
+
+Native command entry points now select config-sync=1 exclusively. `kavernd` uses
+one owned assembly for auth, routing, desired snapshots/listeners and the exclusive
+state lock. The optional plaintext legacy listener remains a separate NPC gateway;
+its server-secret environment and stock-NPC protocol boundary remain explicit.
+No native protocol fallback or NPC behavior is added to kavern-agent.
+
+Agent JSON contains only server, device_id, secret_env, ca_file and optional
+server_name. Presence of deprecated targets/carriers/limits is rejected with a
+constant actionable migration diagnostic, including empty values. Server bootstrap
+limits are also rejected; per-device policy belongs in durable server-owned state.
+Startup validates existing native device configurations against target/policy
+bounds before listening; incompatible state fails with a migration diagnostic and
+releases its lock. No configuration is silently trimmed or merged with local maps.
+
+The native agent loads trust/identity, authenticates and starts one control reader/
+writer, waits for full application and ACK, attaches the exact server carrier policy
+and requests scoped ready. Complete later snapshots trigger scoped re-readiness.
+Control/carrier loss cancels, closes and joins the old receiver and data loops before
+creating a fresh authenticated session/receiver. Backoff ranges from 100 ms to five
+seconds. Application streams are never reconnected or bytes replayed. Signal-driven
+shutdown joins cleanup; five-minute public routes and one-hour native sessions are
+unchanged. Ready output includes only revision, never session IDs, nonces or HMACs.
+
+Explicit incompatible schema/challenge responses fail with a matched-release
+upgrade diagnostic. An older strict server may close the unsupported hello without
+a response, indistinguishable from transient/disabled/credential EOF. That case
+remains fail-closed and retries with one safe reconnect status event per outage.
+The old native client is rejected before attachment on the synchronized server;
+it cannot evict the synchronized session. Deprecated config diagnostics do not
+print field values or credentials.
+
+Own locally built actual commands and ephemeral fixtures cover byte-exact TCP
+response after EOF, restart with the same agent process and fresh revision-2 full
+sync, offline stopped-daemon credential rotation/disable, mixed-version failure,
+state-lock exclusion/release and joined shutdown. An actual agent process connected
+to the reviewed in-process server assembly covers live target change, a revoked
+stream's bytes not reaching the replacement target, occupied-port listener recovery,
+scoped re-readiness and live device disable. Both new server and agent commands are
+used together in actual-process tests; no external NPC binary is executed.
+
+Coverage boundary: there is no approved management interface for live mutations of
+an actual daemon process. No test-only production admin socket, reload signal or
+backdoor is introduced. Actual whole-daemon hot target/enable/credential changes
+await that management checkpoint; live assertions use the owned assembly's public
+business mutation API and are reported as such. Credential rotation uses the
+existing offline CLI only after the daemon stops; the agent restarts with its new
+bootstrap environment. No real credentials, deployment or security-setting changes
+are part of these tests. Legacy binary compatibility/performance evidence remains
+historical, with existing offline legacy regressions preserved.
+
+Independent frozen diff/test review is required before C3 commit or any admin UI,
+management interface or production deployment. Operator policy editing and route/
+session lifecycle followthrough remain separate approved scope.

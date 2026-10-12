@@ -57,10 +57,10 @@ func run(args []string, out, diagnostics io.Writer) error {
 	if args[0] == "validate" {
 		switch *kind {
 		case "server":
-			_, err := config.LoadServer(*cfgPath)
+			_, err := config.LoadNativeServer(*cfgPath)
 			return err
 		case "agent":
-			_, err := config.LoadAgent(*cfgPath)
+			_, err := config.LoadNativeBootstrap(*cfgPath)
 			return err
 		default:
 			return errors.New("validate requires -kind server or agent")

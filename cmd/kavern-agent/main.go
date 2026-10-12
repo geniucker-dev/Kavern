@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/x509"
-	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/geniucker-dev/kavern/internal/domain"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,7 +19,7 @@ func main() {
 	version := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *version {
-		fmt.Println("kavern-agent MVP KAPv1")
+		fmt.Println("kavern-agent KAPv1 config-sync=1")
 		return
 	}
 	if err := run(*path); err != nil {
@@ -28,28 +28,20 @@ func main() {
 	}
 }
 func run(path string) error {
-	cfg, err := config.LoadAgent(path)
+	cfg, err := config.LoadNativeBootstrap(path)
 	if err != nil {
 		return err
 	}
-	secret, err := base64.RawURLEncoding.DecodeString(os.Getenv(cfg.SecretEnv))
-	if err != nil || len(secret) != 32 {
-		return fmt.Errorf("device secret environment must contain 32 base64url bytes")
-	}
-	ca, err := os.ReadFile(cfg.CAFile)
-	if err != nil {
-		return err
-	}
-	roots := x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(ca) {
-		return fmt.Errorf("invalid CA file")
-	}
-	tlsConfig := config.DefaultTLSConfig()
-	tlsConfig.RootCAs = roots
-	tlsConfig.ServerName = cfg.ServerName
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	err = agent_v1.RunAgent(ctx, cfg, tlsConfig, secret, func() { fmt.Println(`{"event":"agent_ready"}`) })
+	err = agent_v1.RunBootstrapAgent(ctx, cfg, func(revision domain.ConfigRevision) {
+		_ = json.NewEncoder(os.Stdout).Encode(struct {
+			Event    string                `json:"event"`
+			Revision domain.ConfigRevision `json:"revision"`
+		}{"agent_ready", revision})
+	}, func() {
+		fmt.Println(`{"event":"agent_reconnecting","code":"check_server_identity_and_native_version","message":"check server availability, enabled device credentials and trust; upgrade kavernd and kavern-agent together for config-sync=1"}`)
+	})
 	if ctx.Err() != nil {
 		return nil
 	}

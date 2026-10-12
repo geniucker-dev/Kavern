@@ -11,16 +11,13 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/geniucker-dev/kavern/internal/config"
 	"github.com/geniucker-dev/kavern/internal/domain"
-	"github.com/geniucker-dev/kavern/internal/gateway/agent_v1"
 	"github.com/geniucker-dev/kavern/internal/gateway/legacy_npc"
 	"github.com/geniucker-dev/kavern/internal/router"
-	"github.com/geniucker-dev/kavern/internal/session"
 	"github.com/geniucker-dev/kavern/internal/store"
 )
 
@@ -29,7 +26,7 @@ func main() {
 	version := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *version {
-		fmt.Println("kavernd MVP KAPv1")
+		fmt.Println("kavernd KAPv1 config-sync=1")
 		return
 	}
 	if err := run(*path); err != nil {
@@ -38,7 +35,7 @@ func main() {
 	}
 }
 func run(path string) error {
-	cfg, err := config.LoadServer(path)
+	cfg, err := config.LoadNativeServer(path)
 	if err != nil {
 		return err
 	}
@@ -46,151 +43,49 @@ func run(path string) error {
 	if err != nil {
 		return err
 	}
-	unlock, err := store.LockState(cfg.StateFile)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	state, err := store.LoadState(cfg.StateFile, key)
-	if err != nil {
-		return err
-	}
+	defer clear(key)
 	certificate, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
 		return err
 	}
-	tlsConfig := config.DefaultTLSConfig()
-	tlsConfig.Certificates = []tls.Certificate{certificate}
-	manager := session.NewManager()
-	auth := agent_v1.NewAuthService(state, manager)
-	routes := router.New(state, manager)
-	var legacy *legacy_npc.Gateway
+	trust := config.DefaultTLSConfig()
+	trust.Certificates = []tls.Certificate{certificate}
+	svc, err := newSyncService(cfg.StateFile, key, trust)
+	if err != nil {
+		return err
+	}
+	defer svc.Close()
 	if cfg.LegacyListen != "" {
 		secret, err := base64.RawURLEncoding.DecodeString(os.Getenv(cfg.ServerSecretEnv))
 		if err != nil || len(secret) < 32 {
 			return errors.New("legacy server secret must contain at least 32 base64url bytes")
 		}
-		legacy, err = legacy_npc.New(legacy_npc.Config{ServerSecret: secret, Store: state, Sessions: manager})
+		defer clear(secret)
+		svc.legacy, err = legacy_npc.New(legacy_npc.Config{ServerSecret: secret, Store: svc.owner, Sessions: svc.manager})
 		if err != nil {
 			return err
 		}
+		svc.legacyListen = cfg.LegacyListen
+	}
+	svc.ready = func() error {
+		public := map[domain.TunnelID]string{}
+		status := svc.public.Status()
+		for _, v := range status {
+			if v.State == "bound" {
+				public[v.TunnelID] = v.BoundAddress
+			}
+		}
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			Event     string                     `json:"event"`
+			Control   string                     `json:"control"`
+			Legacy    string                     `json:"legacy,omitempty"`
+			Public    map[domain.TunnelID]string `json:"public"`
+			Listeners []router.ListenerStatus    `json:"listeners"`
+		}{"server_ready", svc.ControlAddress(), svc.LegacyAddress(), public, status})
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	type service struct {
-		listener net.Listener
-		handler  func(net.Conn)
-	}
-	var services []service
-	defer func() {
-		for _, s := range services {
-			s.listener.Close()
-		}
-	}()
-	listen := func(address string, handler func(net.Conn)) (net.Listener, error) {
-		l, err := net.Listen("tcp", address)
-		if err != nil {
-			return nil, err
-		}
-		services = append(services, service{l, handler})
-		return l, nil
-	}
-	control, err := listen(cfg.ControlListen, func(raw net.Conn) {
-		conn := tls.Server(raw, tlsConfig)
-		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-		if conn.HandshakeContext(ctx) != nil {
-			return
-		}
-		_ = auth.ServeTransport(ctx, conn, cfg.Limits)
-	})
-	if err != nil {
-		return err
-	}
-	legacyAddr := ""
-	if legacy != nil {
-		l, err := listen(cfg.LegacyListen, func(c net.Conn) { _ = legacy.ServeConn(ctx, c) })
-		if err != nil {
-			return err
-		}
-		legacyAddr = l.Addr().String()
-	}
-	public := map[domain.TunnelID]string{}
-	for _, tunnel := range state.Tunnels() {
-		if !tunnel.Enabled {
-			continue
-		}
-		device, err := state.GetDevice(ctx, tunnel.DeviceID)
-		if err != nil {
-			return err
-		}
-		if !device.Enabled {
-			continue
-		}
-		l, err := listen(string(tunnel.Listener), func(c net.Conn) {
-			_ = servePublicRoute(ctx, routes, tunnel, c, 5*time.Minute)
-		})
-		if err != nil {
-			return err
-		}
-		public[tunnel.ID] = l.Addr().String()
-	}
-	var loops, workers sync.WaitGroup
-	slots := make(chan struct{}, 256)
-	failures := make(chan error, len(services))
-	allClosed := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			for _, s := range services {
-				s.listener.Close()
-			}
-		case <-allClosed:
-		}
-	}()
-	defer close(allClosed)
-	for _, s := range services {
-		loops.Add(1)
-		go func() {
-			defer loops.Done()
-			for {
-				c, err := s.listener.Accept()
-				if err != nil {
-					if ctx.Err() == nil {
-						failures <- err
-					}
-					return
-				}
-				select {
-				case slots <- struct{}{}:
-				default:
-					c.Close()
-					continue
-				}
-				workers.Add(1)
-				go func() {
-					defer workers.Done()
-					serveConnection(ctx, c, s.handler, slots)
-				}()
-			}
-		}()
-	}
-	if err = json.NewEncoder(os.Stdout).Encode(struct {
-		Event   string                     `json:"event"`
-		Control string                     `json:"control"`
-		Legacy  string                     `json:"legacy,omitempty"`
-		Public  map[domain.TunnelID]string `json:"public"`
-	}{"server_ready", control.Addr().String(), legacyAddr, public}); err != nil {
-		cancel()
-	}
-	select {
-	case <-ctx.Done():
-	case err = <-failures:
-		cancel()
-	}
-	cancel()
-	loops.Wait()
-	workers.Wait()
-	return err
+	return svc.Run(ctx, cfg.ControlListen)
 }
 
 // The route deadline governs opening the stream and both copy directions. A

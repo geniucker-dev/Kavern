@@ -1,8 +1,8 @@
 package config
 
 import (
+	"bytes"
 	"errors"
-	"os"
 )
 
 // NativeBootstrap contains transport trust and device identity only. Business
@@ -23,13 +23,17 @@ func (c NativeBootstrap) Validate() error {
 }
 func LoadNativeBootstrap(path string) (NativeBootstrap, error) {
 	var c NativeBootstrap
-	f, err := os.Open(path)
+	data, keys, err := bootstrapFile(path)
 	if err != nil {
 		return c, err
 	}
-	defer f.Close()
-	if err = DecodeJSON(f, &c); err != nil {
-		return c, err
+	for _, key := range []string{"targets", "carriers", "limits"} {
+		if _, ok := keys[key]; ok {
+			return c, errors.New("remove targets, carriers and limits from agent config; configure tunnels and carrier policy on the server; upgrade both native commands together")
+		}
+	}
+	if DecodeJSON(bytes.NewReader(data), &c) != nil {
+		return c, errors.New("invalid native bootstrap fields; use server, device_id, secret_env, ca_file and optional server_name")
 	}
 	return c, c.Validate()
 }

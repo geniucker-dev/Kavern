@@ -51,21 +51,22 @@ type syncStage struct {
 // ConfigReceiver owns session-local application/readiness and opt-in carriers.
 // Production command routing remains outside this checkpoint.
 type ConfigReceiver struct {
-	mu            sync.Mutex
-	work          *session.WorkSet
-	auth          SyncAuthResult
-	budget        *SyncStagingBudget
-	stage         *syncStage
-	applied       domain.NativeSnapshot
-	lastTransfer  domain.ConfigRevision
-	ackDeadline   time.Time
-	closed        bool
-	running       bool
-	ready         syncTuple
-	readyRequests chan syncReadyRequest
-	carriers      map[*SyncClientCarrier]struct{}
-	now           func() time.Time
-	timeout       time.Duration
+	mu             sync.Mutex
+	work           *session.WorkSet
+	appliedChanged chan struct{}
+	auth           SyncAuthResult
+	budget         *SyncStagingBudget
+	stage          *syncStage
+	applied        domain.NativeSnapshot
+	lastTransfer   domain.ConfigRevision
+	ackDeadline    time.Time
+	closed         bool
+	running        bool
+	ready          syncTuple
+	readyRequests  chan syncReadyRequest
+	carriers       map[*SyncClientCarrier]struct{}
+	now            func() time.Time
+	timeout        time.Duration
 }
 
 func NewConfigReceiver(auth SyncAuthResult, budget *SyncStagingBudget) (*ConfigReceiver, error) {
@@ -75,7 +76,7 @@ func NewConfigReceiver(auth SyncAuthResult, budget *SyncStagingBudget) (*ConfigR
 	if budget == nil {
 		budget = processSyncBudget
 	}
-	return &ConfigReceiver{work: session.NewWorkSet(4 * 1024), auth: auth, budget: budget, now: time.Now, timeout: SyncTransferTimeout, readyRequests: make(chan syncReadyRequest, 1), carriers: make(map[*SyncClientCarrier]struct{})}, nil
+	return &ConfigReceiver{appliedChanged: make(chan struct{}), work: session.NewWorkSet(4 * 1024), auth: auth, budget: budget, now: time.Now, timeout: SyncTransferTimeout, readyRequests: make(chan syncReadyRequest, 1), carriers: make(map[*SyncClientCarrier]struct{})}, nil
 }
 func (r *ConfigReceiver) Close() {
 	r.mu.Lock()
@@ -101,6 +102,7 @@ func (r *ConfigReceiver) closeLocked() {
 	r.applied = domain.NativeSnapshot{}
 	r.ackDeadline = time.Time{}
 	r.closed = true
+	r.signalAppliedLocked()
 	r.ready = syncTuple{}
 }
 func (r *ConfigReceiver) Snapshot() (domain.NativeSnapshot, bool) {
@@ -121,7 +123,12 @@ func (r *ConfigReceiver) deadline() time.Time {
 	}
 	return r.ackDeadline
 }
-func (r *ConfigReceiver) ackSent() { r.mu.Lock(); r.ackDeadline = time.Time{}; r.mu.Unlock() }
+func (r *ConfigReceiver) ackSent() {
+	r.mu.Lock()
+	r.ackDeadline = time.Time{}
+	r.signalAppliedLocked()
+	r.mu.Unlock()
+}
 
 func minimumTransferBytes(begin syncFrame, actual int) (uint64, error) {
 	end := scopedFrame("config_end", begin.tuple())
@@ -249,5 +256,34 @@ func (r *ConfigReceiver) acceptAt(f syncFrame, size int, started time.Time) (ack
 		return &result, nil
 	default:
 		return nil, ErrSyncTransfer
+	}
+}
+
+func (r *ConfigReceiver) signalAppliedLocked() {
+	close(r.appliedChanged)
+	r.appliedChanged = make(chan struct{})
+}
+
+// WaitApplied waits for a complete snapshot after ACK write, never a partial map.
+func (r *ConfigReceiver) WaitApplied(ctx context.Context, after domain.ConfigRevision) (domain.NativeSnapshot, error) {
+	for {
+		r.mu.Lock()
+		if r.closed {
+			r.mu.Unlock()
+			return domain.NativeSnapshot{}, ErrSessionClosed
+		}
+		if r.applied.Revision > after && r.stage == nil && r.ackDeadline.IsZero() {
+			snapshot := r.applied
+			snapshot.Tunnels = append([]domain.NativeTunnel(nil), snapshot.Tunnels...)
+			r.mu.Unlock()
+			return snapshot, nil
+		}
+		changed := r.appliedChanged
+		r.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return domain.NativeSnapshot{}, ctx.Err()
+		case <-changed:
+		}
 	}
 }

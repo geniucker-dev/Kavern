@@ -102,7 +102,7 @@ func TestActualCommandsNativeTLSHalfCloseAndRestart(t *testing.T) {
 	defer func() { target.Close(); <-targetDone; targets.Wait() }()
 	ctl(nil, append([]string{"add-tunnel", "-id", "tunnel", "-device", "device", "-listen", "127.0.0.1:0", "-target", target.Addr().String()}, common...)...)
 	cert, key := testCertificate(t, dir)
-	serverCfg := config.Server{ControlListen: "127.0.0.1:0", CertFile: cert, KeyFile: key, StateFile: statePath, MasterKeyEnv: "KAVERN_TEST_MASTER"}
+	serverCfg := config.NativeServer{ControlListen: "127.0.0.1:0", CertFile: cert, KeyFile: key, StateFile: statePath, MasterKeyEnv: "KAVERN_TEST_MASTER"}
 	serverPath := filepath.Join(dir, "server.json")
 	writeJSON(t, serverPath, serverCfg)
 	ctl(nil, "validate", "-kind", "server", "-config", serverPath)
@@ -124,7 +124,7 @@ func TestActualCommandsNativeTLSHalfCloseAndRestart(t *testing.T) {
 			stopServer()
 			t.Fatal("state mutated while server was running")
 		}
-		agentCfg := config.Agent{Server: endpoints.Control, DeviceID: "device", SecretEnv: "KAVERN_TEST_DEVICE", CAFile: cert, Targets: map[string]string{"tunnel": target.Addr().String()}, Carriers: 2}
+		agentCfg := config.NativeBootstrap{Server: endpoints.Control, DeviceID: "device", SecretEnv: "KAVERN_TEST_DEVICE", CAFile: cert}
 		agentPath := filepath.Join(dir, "agent.json")
 		writeJSON(t, agentPath, agentCfg)
 		ctl(nil, "validate", "-kind", "agent", "-config", agentPath)
@@ -270,6 +270,20 @@ func startTestProcess(t *testing.T, binary, cfg string, env []string, dir string
 	t.Cleanup(stop)
 	select {
 	case line := <-lines:
+		if filepath.Base(binary) == "kavern-agent" {
+			var event struct {
+				Event string `json:"event"`
+			}
+			_ = json.Unmarshal(line, &event)
+			if event.Event != "agent_ready" {
+				select {
+				case line = <-lines:
+				case <-time.After(10 * time.Second):
+					stop()
+					t.Fatal("agent scoped readiness timeout")
+				}
+			}
+		}
 		return cmd, line, stop
 	case <-time.After(10 * time.Second):
 		cancel()
