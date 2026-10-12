@@ -745,3 +745,29 @@ func TestConfigOwnerRevisionOverflowAndCorruptMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigOwnerNativeAuthViewCopiesAndCloses(t *testing.T) {
+	o, _, _ := ownerFixture(t, defaultStateFiles())
+	ctx := context.Background()
+	device, secret, err := o.ResolveKAPv1DeviceForAuth(ctx, "a")
+	if err != nil || device.ID != "a" || len(secret) != 32 {
+		t.Fatal("owned auth view missing", err)
+	}
+	secret[0] ^= 0xff
+	_, again, err := o.ResolveKAPv1DeviceForAuth(ctx, "a")
+	if err != nil || bytes.Equal(secret, again) {
+		t.Fatal("auth view aliases stored credential", err)
+	}
+	c := desired(t, o, "a")
+	c.Device.Enabled = false
+	if _, err = o.Commit(ctx, []domain.DeviceConfiguration{c}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = o.ResolveKAPv1DeviceForAuth(ctx, "a"); !errors.Is(err, ErrDisabledDevice) {
+		t.Fatal("owned auth view ignored disable", err)
+	}
+	_ = o.Close()
+	if _, _, err = o.ResolveKAPv1DeviceForAuth(ctx, "a"); !errors.Is(err, ErrConfigOwnerClosed) {
+		t.Fatal("closed owner authenticated", err)
+	}
+}

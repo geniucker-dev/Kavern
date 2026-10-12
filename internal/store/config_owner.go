@@ -119,6 +119,20 @@ func (o *ConfigOwner) NativeSnapshot(ctx context.Context, id domain.DeviceID) (d
 	return o.current.NativeSnapshot(ctx, id)
 }
 
+// ResolveKAPv1DeviceForAuth exposes the same device-bound credential view as
+// the desired snapshot source, without granting access to mutable live state.
+func (o *ConfigOwner) ResolveKAPv1DeviceForAuth(ctx context.Context, id domain.DeviceID) (domain.Device, []byte, error) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.closed {
+		return domain.Device{}, nil, ErrConfigOwnerClosed
+	}
+	if o.uncertain {
+		return domain.Device{}, nil, ErrCommitUncertain
+	}
+	return o.current.ResolveKAPv1DeviceForAuth(ctx, id)
+}
+
 // Commit atomically replaces the listed devices' complete desired tunnel sets.
 // Once accepted, it waits for the definitive persistence result even if ctx is
 // canceled, so a durable rename/fsync cannot be misreported as an abort.
