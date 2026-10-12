@@ -1,6 +1,8 @@
 package agent_v1
 
 import (
+	"context"
+	"github.com/geniucker-dev/kavern/internal/session"
 	"sync"
 	"time"
 
@@ -50,6 +52,7 @@ type syncStage struct {
 // Production command routing remains outside this checkpoint.
 type ConfigReceiver struct {
 	mu            sync.Mutex
+	work          *session.WorkSet
 	auth          SyncAuthResult
 	budget        *SyncStagingBudget
 	stage         *syncStage
@@ -72,16 +75,20 @@ func NewConfigReceiver(auth SyncAuthResult, budget *SyncStagingBudget) (*ConfigR
 	if budget == nil {
 		budget = processSyncBudget
 	}
-	return &ConfigReceiver{auth: auth, budget: budget, now: time.Now, timeout: SyncTransferTimeout, readyRequests: make(chan syncReadyRequest, 1), carriers: make(map[*SyncClientCarrier]struct{})}, nil
+	return &ConfigReceiver{work: session.NewWorkSet(4 * 1024), auth: auth, budget: budget, now: time.Now, timeout: SyncTransferTimeout, readyRequests: make(chan syncReadyRequest, 1), carriers: make(map[*SyncClientCarrier]struct{})}, nil
 }
 func (r *ConfigReceiver) Close() {
 	r.mu.Lock()
 	r.closeLocked()
+	revoked := r.work.Collect(func(domain.WorkScope) bool { return true })
 	owned := make([]*SyncClientCarrier, 0, len(r.carriers))
 	for c := range r.carriers {
 		owned = append(owned, c)
 	}
 	r.mu.Unlock()
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), SyncWriteTimeout)
+	defer cancel()
+	_ = session.CancelAndJoin(cleanupCtx, revoked)
 	for _, c := range owned {
 		_ = c.Close()
 	}
@@ -139,10 +146,27 @@ func (r *ConfigReceiver) accept(f syncFrame, size int) (ack *syncFrame, err erro
 }
 func (r *ConfigReceiver) acceptAt(f syncFrame, size int, started time.Time) (ack *syncFrame, err error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	var revoked []*session.WorkLease
+	var cleanupDeadline time.Time
 	defer func() {
 		if err != nil {
 			r.closeLocked()
+			revoked = r.work.Collect(func(domain.WorkScope) bool { return true })
+		}
+		r.mu.Unlock()
+		if len(revoked) > 0 {
+			if cleanupDeadline.IsZero() {
+				cleanupDeadline = time.Now().Add(SyncWriteTimeout)
+			}
+			ctx, cancel := context.WithDeadline(context.Background(), cleanupDeadline)
+			defer cancel()
+			if cleanupErr := session.CancelAndJoin(ctx, revoked); cleanupErr != nil {
+				r.mu.Lock()
+				r.closeLocked()
+				r.mu.Unlock()
+				ack = nil
+				err = cleanupErr
+			}
 		}
 	}()
 	if r.closed {
@@ -203,6 +227,19 @@ func (r *ConfigReceiver) acceptAt(f syncFrame, size int, started time.Time) (ack
 		if *f.Count != stage.count || *f.TotalBytes != stage.total || len(stage.snapshot.Tunnels) != int(stage.count) || stage.received != stage.total || config.ValidateNativeSnapshot(stage.snapshot) != nil {
 			return nil, ErrSyncTransfer
 		}
+		next := stage.snapshot
+		cleanupDeadline = stage.deadline
+		revoked = r.work.Collect(func(scope domain.WorkScope) bool {
+			if next.Policy != r.applied.Policy {
+				return true
+			}
+			for _, t := range next.Tunnels {
+				if t.ID == scope.TunnelID {
+					return t.TargetAddr != scope.TargetAddr || t.Protocol != scope.Protocol
+				}
+			}
+			return true
+		})
 		r.applied = stage.snapshot
 		r.lastTransfer = stage.tuple.TransferID
 		r.ackDeadline = stage.deadline

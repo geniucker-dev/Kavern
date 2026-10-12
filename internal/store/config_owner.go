@@ -11,6 +11,7 @@ import (
 
 	"github.com/geniucker-dev/kavern/internal/config"
 	"github.com/geniucker-dev/kavern/internal/domain"
+	"github.com/geniucker-dev/kavern/internal/session"
 )
 
 const MaxQueuedConfigMutations = 8
@@ -61,6 +62,8 @@ type ConfigOwner struct {
 	done              chan struct{}
 	unlock            func() error
 	closeErr          error
+	work              *session.WorkSet
+	changed           chan struct{}
 }
 
 func OpenConfigOwner(path string, key []byte, defaults domain.NativePolicy) (*ConfigOwner, error) {
@@ -81,7 +84,7 @@ func openConfigOwner(path string, key []byte, defaults domain.NativePolicy, file
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	o := &ConfigOwner{current: current, path: path, key: append([]byte(nil), key...), defaults: defaults, files: files, queue: make(chan configRequest, MaxQueuedConfigMutations), ctx: ctx, cancel: cancel, done: make(chan struct{}), unlock: unlock}
+	o := &ConfigOwner{current: current, path: path, key: append([]byte(nil), key...), defaults: defaults, files: files, queue: make(chan configRequest, MaxQueuedConfigMutations), ctx: ctx, cancel: cancel, done: make(chan struct{}), unlock: unlock, work: session.NewWorkSet(maxOwnedWork), changed: make(chan struct{})}
 	go o.run()
 	return o, nil
 }
@@ -90,9 +93,12 @@ func (o *ConfigOwner) Close() error {
 	o.mu.Lock()
 	o.closed = true
 	o.cancel()
+	o.signalLocked()
+	revoked := o.work.Collect(func(domain.WorkScope) bool { return true })
 	o.mu.Unlock()
+	cleanupErr := cleanupOwned(revoked)
 	<-o.done
-	return o.closeErr
+	return errors.Join(o.closeErr, cleanupErr)
 }
 
 func (o *ConfigOwner) DeviceConfiguration(ctx context.Context, id domain.DeviceID) (domain.DeviceConfiguration, error) {
@@ -257,9 +263,10 @@ func (o *ConfigOwner) process(ctx context.Context, req configRequest) configResu
 			return configResult{err: errors.Join(ErrCommitUncertain, err)}
 		}
 		o.mu.Lock()
-		o.current, o.uncertain = loaded, false
+		o.uncertain = false
+		revoked := o.publishLocked(loaded)
 		o.mu.Unlock()
-		return configResult{}
+		return configResult{err: cleanupOwned(revoked)}
 	}
 	if uncertain {
 		return configResult{err: ErrCommitUncertain}
@@ -347,13 +354,16 @@ func (o *ConfigOwner) process(ctx context.Context, req configRequest) configResu
 		if errors.Is(err, ErrCommitUncertain) {
 			o.mu.Lock()
 			o.uncertain = true
+			o.signalLocked()
+			revoked := o.work.Collect(func(domain.WorkScope) bool { return true })
 			o.mu.Unlock()
+			err = errors.Join(err, cleanupOwned(revoked))
 		}
 		return configResult{err: err}
 	}
 	// Durability is confirmed. Do not turn cancellation/shutdown into rollback.
 	o.mu.Lock()
-	o.current = next
+	revoked := o.publishLocked(next)
 	o.mu.Unlock()
-	return configResult{revisions: revisions}
+	return configResult{revisions: revisions, err: cleanupOwned(revoked)}
 }

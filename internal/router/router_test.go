@@ -142,7 +142,8 @@ func TestRouteTCPNilInboundRejectsDisabledTunnelAndDeviceFirst(t *testing.T) {
 	if err := manager.Attach(ctx, fake); err != nil {
 		t.Fatalf("Attach() error = %v", err)
 	}
-	if err := router.New(st, manager).RouteTCP(ctx, domain.Tunnel{ID: "tunnel-1", DeviceID: "device-1", Enabled: false}, nil); !errors.Is(err, router.ErrDisabledTunnel) {
+	_ = st.CreateTunnel(ctx, domain.Tunnel{ID: "tunnel-1", DeviceID: "device-1", Enabled: false})
+	if err := router.New(st, manager).RouteTCP(ctx, domain.Tunnel{ID: "tunnel-1", DeviceID: "device-1", Enabled: true}, nil); !errors.Is(err, router.ErrDisabledTunnel) {
 		t.Fatalf("RouteTCP(disabled tunnel) error = %v, want ErrDisabledTunnel", err)
 	}
 	if fake.OpenCount() != 0 {
@@ -154,6 +155,7 @@ func TestRouteTCPNilInboundRejectsDisabledTunnelAndDeviceFirst(t *testing.T) {
 	if err := disabledStore.CreateDevice(ctx, domain.Device{ID: "device-2", ProjectID: "project-1", Enabled: false}); err != nil {
 		t.Fatalf("CreateDevice() error = %v", err)
 	}
+	_ = disabledStore.CreateTunnel(ctx, domain.Tunnel{ID: "tunnel-2", DeviceID: "device-2", Enabled: true})
 	disabledFake := testutil.NewFakeSession("session-2", "device-2")
 	if err := disabledManager.Attach(ctx, disabledFake); err != nil {
 		t.Fatalf("Attach() error = %v", err)
@@ -202,5 +204,6 @@ func newRouterFixture(t *testing.T) (*store.MemoryStore, *session.Manager) {
 	if err := st.CreateDevice(ctx, domain.Device{ID: "device-1", ProjectID: "project-1", Enabled: true}); err != nil {
 		t.Fatalf("CreateDevice() error = %v", err)
 	}
+	_ = st.CreateTunnel(ctx, domain.Tunnel{ID: "tunnel-1", DeviceID: "device-1", Protocol: domain.TunnelProtocolTCP, Listener: "tcp:1000", TargetAddr: "127.0.0.1:80", Enabled: true})
 	return st, session.NewManager()
 }

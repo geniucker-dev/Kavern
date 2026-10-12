@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/geniucker-dev/kavern/internal/config"
@@ -88,6 +89,37 @@ func (s *agentSession) openSyncStream(ctx context.Context, req domain.StreamOpen
 	if data == nil {
 		return nil, ErrSyncNotReady
 	}
+	var work *session.WorkLease
+	transferred := false
+	if owner, ok := data.service.store.(interface {
+		AdmitTunnel(context.Context, domain.TunnelID, domain.ConfigRevision) (domain.RouteView, *session.WorkLease, error)
+	}); ok {
+		view, registered, err := owner.AdmitTunnel(ctx, req.TunnelID, req.Revision)
+		if err != nil {
+			return nil, err
+		}
+		work = registered
+		if work != nil {
+			ctx = work.Context
+			// Session retirement also cancels a pending open or a returned stream that
+			// the caller has not closed. This worker is bounded by the owner registry.
+			go func() {
+				select {
+				case <-s.Done():
+					work.Cancel()
+				case <-work.Done():
+				}
+			}()
+			defer func() {
+				if !transferred {
+					work.Finish()
+				}
+			}()
+		}
+		if view.Device.ID != s.deviceID {
+			return nil, ErrUnknownTunnelTarget
+		}
+	}
 	data.mu.Lock()
 	tuple := data.ready
 	data.mu.Unlock()
@@ -122,6 +154,13 @@ func (s *agentSession) openSyncStream(ctx context.Context, req domain.StreamOpen
 	if err != nil {
 		return nil, err
 	}
+	callbackDone := make(chan struct{})
+	stopClose := context.AfterFunc(ctx, func() { defer close(callbackDone); _ = lease.Release() })
+	defer func() {
+		if !stopClose() {
+			<-callbackDone
+		}
+	}()
 	// Opening the mux stream may wait. Never send old metadata after that wait.
 	if err = check(); err != nil {
 		_ = lease.Release()
@@ -132,26 +171,67 @@ func (s *agentSession) openSyncStream(ctx context.Context, req domain.StreamOpen
 		_ = lease.Release()
 		return nil, err
 	}
-	return &leasedAgentStream{Lease: lease}, nil
-}
-func (r *ConfigReceiver) resolveSyncTarget(ctx context.Context, m SyncStreamMetadata) (string, error) {
+	result := &leasedAgentStream{Lease: lease}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		_ = result.Close()
+		return nil, err
+	}
+	if work != nil {
+		owned := &admittedAgentStream{AgentStream: result, work: work}
+		context.AfterFunc(ctx, func() { _ = owned.Close() })
+		transferred = true
+		return owned, nil
+	}
+	return result, nil
+}
+
+// Closing or revoking an independently admitted open releases both its carrier
+// lease and work registration. Router-owned registrations stay with the proxy.
+type admittedAgentStream struct {
+	session.AgentStream
+	work *session.WorkLease
+	once sync.Once
+	err  error
+}
+
+func (s *admittedAgentStream) Close() error {
+	s.once.Do(func() { s.err = s.AgentStream.Close(); s.work.Finish() })
+	return s.err
+}
+func (s *admittedAgentStream) CloseWrite() error {
+	if cw, ok := s.AgentStream.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return ErrUnsupportedTunnelProtocol
+}
+
+func (r *ConfigReceiver) resolveSyncTarget(ctx context.Context, m SyncStreamMetadata) (string, error) {
+	target, lease, err := r.admitSyncTarget(ctx, m)
+	if lease != nil {
+		lease.Finish()
+	}
+	return target, err
+}
+func (r *ConfigReceiver) admitSyncTarget(ctx context.Context, m SyncStreamMetadata) (string, *session.WorkLease, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.stage != nil || !r.ackDeadline.IsZero() || r.ready.Revision == 0 || m.tuple() != r.ready || m.tuple() != r.currentTupleLocked() || r.liveCarriersLocked() != r.applied.Policy.Carriers {
-		return "", ErrSyncStale
+		return "", nil, ErrSyncStale
 	}
 	for _, t := range r.applied.Tunnels {
 		if t.ID == m.TunnelID {
-			return t.TargetAddr, nil
+			lease, err := r.work.Register(ctx, domain.WorkScope{DeviceID: m.DeviceID, TunnelID: t.ID, Revision: m.Revision, TargetAddr: t.TargetAddr, Protocol: t.Protocol})
+			return t.TargetAddr, lease, err
 		}
 	}
-	return "", ErrUnknownTunnelTarget
+	return "", nil, ErrUnknownTunnelTarget
 }
 func HandleSyncAgentStream(ctx context.Context, stream mux.Stream, receiver *ConfigReceiver, dialer Dialer) error {
 	stream = &ownedStream{Stream: stream}
+	var work *session.WorkLease
 	done := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() { defer close(done); _ = stream.Close() })
 	defer func() {
@@ -159,6 +239,9 @@ func HandleSyncAgentStream(ctx context.Context, stream mux.Stream, receiver *Con
 			<-done
 		}
 		_ = stream.Close()
+		if work != nil {
+			work.Finish()
+		}
 	}()
 	if receiver == nil {
 		return ErrInvalidInput
@@ -177,14 +260,26 @@ func HandleSyncAgentStream(ctx context.Context, stream mux.Stream, receiver *Con
 	if d, ok := stream.(interface{ SetReadDeadline(time.Time) error }); ok {
 		_ = d.SetReadDeadline(time.Time{})
 	}
-	target, err := receiver.resolveSyncTarget(ctx, m)
+	target, registered, err := receiver.admitSyncTarget(ctx, m)
+	work = registered
 	if err != nil {
 		return err
 	}
+	ctx = work.Context
+	revokedDone := make(chan struct{})
+	stopRevoked := context.AfterFunc(ctx, func() { defer close(revokedDone); _ = stream.Close() })
+	defer func() {
+		if !stopRevoked() {
+			<-revokedDone
+		}
+	}()
 	connected, err := dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
 		return err
 	}
 	defer connected.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return session.ProxyBidirectional(ctx, stream, connected)
 }

@@ -64,7 +64,9 @@ func publicRouteFixture(t *testing.T, agent *publicRouteSession) (*router.Router
 	if err := manager.Attach(ctx, agent); err != nil {
 		t.Fatal(err)
 	}
-	return router.New(state, manager), domain.Tunnel{ID: "tunnel", DeviceID: "device", Protocol: domain.TunnelProtocolTCP, Enabled: true}
+	tunnel := domain.Tunnel{ID: "tunnel", DeviceID: "device", Protocol: domain.TunnelProtocolTCP, Enabled: true}
+	_ = state.CreateTunnel(ctx, tunnel)
+	return router.New(state, manager), tunnel
 }
 
 func TestPublicRouteTimeoutReleasesSilentMuxLeaseAndHandlerSlot(t *testing.T) {

@@ -258,6 +258,17 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 	if receiver != nil {
 		readyRequests = receiver.readyRequests
 	}
+	var desiredChanged <-chan struct{}
+	var desiredSource interface{ ChangeSignal() <-chan struct{} }
+	if server != nil {
+		desiredSource, _ = server.source.(interface{ ChangeSignal() <-chan struct{} })
+		if desiredSource == nil {
+			desiredSource, _ = server.service.store.(interface{ ChangeSignal() <-chan struct{} })
+		}
+		if desiredSource != nil {
+			desiredChanged = desiredSource.ChangeSignal()
+		}
+	}
 	var updates <-chan struct{}
 	if server != nil {
 		updates = server.updates
@@ -514,6 +525,11 @@ func runConfigControl(parent context.Context, conn net.Conn, server *ConfigServe
 			count := uint8(req.count)
 			frame.CarrierCount = &count
 			if err := write(frame); err != nil {
+				return err
+			}
+		case <-desiredChanged:
+			desiredChanged = desiredSource.ChangeSignal()
+			if err := startLatest(); err != nil {
 				return err
 			}
 		case <-updates:

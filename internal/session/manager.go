@@ -33,8 +33,21 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) Attach(ctx context.Context, next AgentSession) error {
-	if err := ctx.Err(); err != nil {
+	replaced, err := m.Publish(ctx, next)
+	if err != nil {
 		return err
+	}
+	if replaced != nil {
+		_ = replaced.Close(context.Background())
+	}
+	return nil
+}
+
+// Publish performs only the in-memory attachment. A caller composing desired-
+// state admission must close the returned predecessor outside its guard.
+func (m *Manager) Publish(ctx context.Context, next AgentSession) (AgentSession, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	var replaced AgentSession
@@ -42,11 +55,11 @@ func (m *Manager) Attach(ctx context.Context, next AgentSession) error {
 	// Cancellation linearizes here, before any publication state is accessed.
 	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
-		return err
+		return nil, err
 	}
 	if existing := m.byID[next.ID()]; existing != nil {
 		m.mu.Unlock()
-		return ErrDuplicateSessionID
+		return nil, ErrDuplicateSessionID
 	}
 	if old := m.current[next.DeviceID()]; old != nil && old.ID() != next.ID() {
 		replaced = old
@@ -63,10 +76,7 @@ func (m *Manager) Attach(ctx context.Context, next AgentSession) error {
 	}
 	m.mu.Unlock()
 
-	if replaced != nil {
-		_ = replaced.Close(context.Background())
-	}
-	return nil
+	return replaced, nil
 }
 
 func (m *Manager) Detach(ctx context.Context, sessionID domain.SessionID) error {

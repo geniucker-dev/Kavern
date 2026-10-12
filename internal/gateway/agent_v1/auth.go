@@ -163,6 +163,7 @@ func (s *AuthService) completeAuth(ctx context.Context, req AuthFinishRequest, s
 		return AuthResult{}, ErrChallengeExpired
 	}
 	device, secret, err := s.store.ResolveKAPv1DeviceForAuth(ctx, state.DeviceID)
+	defer clear(secret)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -182,18 +183,77 @@ func (s *AuthService) completeAuth(ctx context.Context, req AuthFinishRequest, s
 	agentSession.now = s.now
 	agentSession.expiresAt = s.now().Add(time.Hour)
 	s.registrationMu.Lock()
-	defer s.registrationMu.Unlock()
-	if err := s.registry.reserve(sessionID, agentSession); err != nil {
-		return AuthResult{}, err
+	var replaced session.AgentSession
+	var owned *session.WorkLease
+	publish := func(current domain.Device, currentSecret []byte) error {
+		if syncVersion == ConfigSyncVersion {
+			if err := VerifySyncAuthResponse(currentSecret, req.ResponseHMAC, current.ID, state.ClientNonce, state.ServerNonce, syncVersion); err != nil {
+				return err
+			}
+		} else if err := VerifyAuthResponse(currentSecret, req.ResponseHMAC, current.ID, state.ClientNonce, state.ServerNonce, ProtocolVersion, TransportRoleControl); err != nil {
+			return err
+		}
+		if err := s.registry.reserve(sessionID, agentSession); err != nil {
+			return err
+		}
+		publisher, ok := s.sessions.(interface {
+			Publish(context.Context, session.AgentSession) (session.AgentSession, error)
+		})
+		if !ok {
+			s.registry.remove(sessionID)
+			return ErrInternalInvariant
+		}
+		var err error
+		replaced, err = publisher.Publish(ctx, agentSession)
+		if err != nil {
+			s.registry.remove(sessionID)
+			return err
+		}
+		if err := s.registry.activate(sessionID); err != nil {
+			panic(err)
+		}
+		return nil
 	}
-	if err := s.sessions.Attach(ctx, agentSession); err != nil {
-		s.registry.remove(sessionID)
+	if owner, ok := s.store.(interface {
+		AuthenticatePublication(context.Context, domain.DeviceID, func(domain.Device, []byte) error) (*session.WorkLease, error)
+	}); ok {
+		owned, err = owner.AuthenticatePublication(ctx, device.ID, publish)
+	} else {
+		err = s.registry.reserve(sessionID, agentSession)
+		if err == nil {
+			err = s.sessions.Attach(ctx, agentSession)
+			if err != nil {
+				s.registry.remove(sessionID)
+			} else if err = s.registry.activate(sessionID); err != nil {
+				panic(err)
+			}
+		}
+	}
+	s.registrationMu.Unlock()
+	if err != nil {
 		_ = agentSession.Close(context.Background())
 		return AuthResult{}, err
 	}
-	if err := s.registry.activate(sessionID); err != nil {
-		panic(err)
+	if owned != nil {
+		go func() {
+			defer owned.Finish()
+			select {
+			case <-owned.Context.Done():
+			case <-agentSession.Done():
+			}
+			// Close joins any concurrent pool cleanup before releasing ownership.
+			_ = agentSession.Close(context.Background())
+			s.registry.remove(sessionID)
+			_ = s.sessions.Detach(context.Background(), sessionID)
+		}()
 	}
+
+	// The published replacement owns its lifecycle before predecessor cleanup,
+	// which may block independently of revocation of this new session.
+	if replaced != nil {
+		_ = replaced.Close(context.Background())
+	}
+
 	return AuthResult{SessionID: sessionID, DeviceID: device.ID, ProtocolVersion: ProtocolVersion}, nil
 }
 

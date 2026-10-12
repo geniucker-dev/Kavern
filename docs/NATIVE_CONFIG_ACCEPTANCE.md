@@ -79,3 +79,55 @@ Current native performance is a frozen comparison baseline, not a new benchmark 
 ## Design-pass evidence and remaining gates
 
 Repository baseline, draft validation and sandbox/test outcomes will be recorded in the handoff. The design itself implements no behavior. Slice A was authorized after independent design review on 2026-10-12. Its uncommitted implementation must pass independent diff/test review before any subsequent slice begins. No deployment, real credential provisioning, security-setting change, commit, push or force push is authorized by this design pass.
+
+## Slice C1: admission and revocation checkpoint
+
+This checkpoint covers authoritative admission and cancellation, before dynamic
+listeners or production command rollout. It does not complete all of Slice C.
+
+- `RouteView` reads stored Tunnel, owning Device and revision in one generation.
+  RouteTCP ignores caller ownership, enabled, protocol and target fields. The
+  owner rechecks that revision and registers work before asynchronous opening.
+  Native direct opens use the authenticated service's owner, including when a
+  snapshot-source decorator does not expose admission methods. Router-owned
+  opens share their registration; independently returned streams own theirs.
+- Desired publication uses the same guard as admission and final native proof /
+  session publication. It swaps the view and collects affected work under that
+  guard; cancellation, connection closure and worker joins happen afterward.
+  A target/listener/protocol change, omission or disable revokes affected routes.
+  Device disable revokes its session and all device work before Commit completes,
+  without waiting for ACK. Carrier-policy change deliberately retires the native
+  session and all device work; this checkpoint does not resize live pools.
+- Work is bounded to 4,608 server registrations (shared by native session owners
+  and routes/opens) and 4,096 receiver registrations. Saturation fails admission;
+  it never creates an unlimited waiter queue. Closing/replacing a session also
+  cancels independently admitted pending opens and returned streams. Unchanged
+  established tunnels survive unrelated edits while their carrier remains live.
+- The receiver captures its target and registers pending dial/active proxy work
+  under its snapshot guard. Completed replacement collects affected work in that
+  same critical section. It cancels/joins outside the lock before ACK, using the
+  remaining original transfer deadline. A late successful dial after cancellation
+  is closed before proxying; stale metadata cannot register against a new map.
+- Owner change signals are coalesced wakeups. Control re-reads the authoritative
+  latest snapshot, including after ACK, rather than retaining mutation events.
+  Restart/reconnect still starts with a full snapshot and empty readiness.
+- Durable publication and cleanup are separate outcomes. Commit returns committed
+  revisions plus `session.ErrWorkCleanupPending` if revoked work does not join
+  within five seconds. The saved generation remains current and on disk; this
+  error is not a rollback. Persistence uncertainty still blocks admission and
+  revokes existing work; recovery cannot resurrect canceled connections. An
+  uncooperative injected dial/close/backend may remain pending after the cleanup
+  bound; no claim of forcible termination of arbitrary Go code is made.
+
+Acceptance adds deterministic barriers for authentication/disable ordering,
+registered pool waits, late returned mux streams and target connections, snapshot
+publication before metadata admission, automatic source wakeups, unchanged active
+traffic, capacity reuse and durable cleanup timeout. Tests assert completion,
+closed late resources, no obsolete metadata, and released registrations. Existing
+normal tests remain offline and NPC_BIN-free. This checkpoint neither runs a real
+NPC binary nor extends existing black-box compatibility/performance evidence.
+
+Public listener generation checks/reconciliation, runtime status/operator adapter,
+coordinated native command rollout, and route/session lifetime policy remain later
+reviewed checkpoints. Five-minute public routes and one-hour native sessions are
+unchanged here.
