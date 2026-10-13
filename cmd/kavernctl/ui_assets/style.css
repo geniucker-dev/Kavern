@@ -425,3 +425,5 @@ footer{
     width:100%
   }
 }
+
+input,textarea{font:inherit;min-height:44px;border:1px solid var(--border);border-radius:8px;padding:10px;max-width:100%;width:100%;color:#172b3a;background:white} input[type=checkbox]{width:24px;min-height:24px;vertical-align:middle;margin-right:10px} input:focus-visible,textarea:focus-visible{outline:3px solid #0284c7;outline-offset:4px}.editor{margin-top:22px}.editor label{display:block;margin:16px 0 6px;font-weight:650}.editor h2{margin-top:0}.actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.editor fieldset{border:0;margin:0;padding:0;min-width:0}.editor fieldset:disabled{opacity:.65}.primary{background:#075985;color:white}.primary:hover{background:#06466a;color:white}.operation{border-top:1px solid var(--border);margin-top:20px;padding-top:16px;overflow-wrap:anywhere}.operation h3{font-size:1rem}.draft-note{background:#fef3c7;padding:12px;border-radius:8px}.editor pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}.editor textarea{font-family:ui-monospace,monospace;font-size:.82rem}

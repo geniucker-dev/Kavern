@@ -83,6 +83,11 @@ type AdminListener struct {
 	Generation   string          `json:"generation,omitempty"`
 	RetryAt      string          `json:"retry_at,omitempty"`
 }
+type AdminCredentialKinds struct {
+	DeviceID domain.DeviceID         `json:"device_id"`
+	Kinds    []domain.CredentialKind `json:"credential_kinds"`
+}
+
 type AdminDeviceStatus struct {
 	Device          domain.Device             `json:"device"`
 	UserID          domain.UserID             `json:"user_id"`

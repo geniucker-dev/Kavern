@@ -1,7 +1,7 @@
 # ADR 0010: Minimal local WebUI over the private management socket
 
-Status: design independently approved; W1 read-only implementation candidate awaits
-independent review, 2026-10-13. W2 mutation UI remains paused.
+Status: W1 R2 independently approved and committed locally; W2 implementation
+candidate awaits independent review, 2026-10-13.
 Baseline: `078902bb6244a677ecbb9dcec61af6c4aa9a1579` (accepted L3).
 This refines ADR 0008's local bridge proposal; it does not authorize real provisioning.
 
@@ -363,3 +363,76 @@ starve it by continuously canceling it. Auth expiry and ownership-filter changes
 invalidate pending details. Only an explicit healthy observation can restore sampling
 following uncertainty. Permanent actual-browser regressions verify both races before
 restoring their synthetic fixture for the remaining layout/security checks.
+
+## W2 bounded implementation candidate
+
+The user authorized W2 after W1 R2's independent GO. W1 was committed locally as
+`5061df457f1a3ca8c92e032dc5f19c091ae4756a`. This candidate adds insert-only ownership
+forms, native device creation, device name/enable edits, TCP tunnel create/edit/enable,
+native rotation, a secret-free bootstrap template and original-request recovery.
+User/project editing, reparenting, deletion controls, legacy issuance and remote
+administration remain outside this slice. Existing online commands remain available.
+
+`--credential-dir` is an optional absolute existing owned private directory. Without
+it, configuration editing works but native issuance actions are unavailable. The
+browser cannot select a path/name or read a credential file. The bridge reserves
+`kavern-<operation_id>.json` exclusively before an original issuance; descriptor write,
+fsync and path/descriptor verification precede `protected_file`. The browser receives
+only the path and delivery fact. A saved result with failed/missing delivery remains
+saved with delivery unconfirmed; exact retry cannot deliver another credential.
+
+Two proposed read extensions are necessary for the requested safety contract:
+`GET /admin/v1/devices/:id/credential-kinds` projects stored kind identifiers, including
+disabled/offline devices, without an auth resolver or material. `POST
+/admin/v1/operations/lookup` accepts the complete original `AdminMutation` and compares
+its canonical digest with the retained receipt under the owner's read lock. It never
+queues a mutation, creates a receipt or issues material. Changed content is
+`operation_reuse`; an absent/window-mismatched receipt is expired/unknown. This closes
+the content-verification gap in the older window/ID-only GET lookup, which remains
+unchanged for CLI compatibility.
+
+The bridge exposes only typed `api/mutations`, `api/lookup` and explicit `api/recover`
+POST adapters, plus window/capability/kind reads. Original Host/Origin/cookie/token,
+strict JSON, HTTP/resource/UDS restrictions remain mandatory. No generic proxy or
+second configuration owner is introduced. Local pre-dispatch parser/path/destination
+rejections carry `rejected`; transport/protocol failure after possible dispatch is
+unconfirmed. An expired lookup never proves that the original write was rejected.
+
+Editor baselines retain the complete tunnel set and policy, while device/project/tunnel
+ownership is immutable. Conflict review fetches current state and requires an explicit
+editor reload; the draft is never silently merged or revision-bumped. Save preparation
+and submission are locked. An unresolved request blocks a new save for the same
+action/record; resolution or explicit discard is required before minting a new ID. Four nonsecret request envelopes, at most 2 MiB total, are
+retained before dispatch; storage failure prevents dispatch. Auth expiry clears only
+auth. The old tab can export the original request for import and digest lookup in a
+new bridge origin. Terminal receipt lookup cannot infer or recover secret delivery.
+The bootstrap template contains only address, device ID, secret environment reference
+and CA/server-name paths; generating it changes no trust or filesystem setting.
+
+Actual installed sandbox-enabled Chromium plus race-built own daemon/agent/CLI prove
+ownership/two-device creation, protected native issuance, automatic synchronization and
+TCP receipts, target edits with other-device isolation, device/tunnel disable/enable,
+saved bind failures, stale CAS with retained draft, lost response lookup, restart and
+reconnect, expired-browser import, changed-import rejection and unknown receipts.
+A synthetic browser response overlay separately exercises uncertainty/readiness fencing
+and explicit recovery feedback; it is not claimed as an actual daemon persistence
+fault. Existing owner persistence-fault tests remain the durability evidence. The
+fixture also inserts 51 disabled companion tunnels and verifies their exact contents
+and policy survive UI edits even beyond the first 50 displayed rows.
+
+W2 remains uncommitted for independent review. Its ordinary/race/vet/browser evidence
+and exact frozen manifest accompany the review handoff; no performance baseline,
+native/legacy wire behavior, live provisioning or external NPC acceptance is changed.
+
+### W2 R2 review corrections
+
+Independent W2 review rejected the first candidate for fresh issuance through retry,
+an empty reserved destination at actor dispatch, and a later rejected retry falsely
+resolving the original unknown outcome. Issuance retries now perform only bounded
+exact-content receipt lookup and return its redacted retained result; they never
+forward a mutation, even if the original never executed or its receipt was evicted.
+Original issuance writes, syncs and verifies an unconfirmed marker before dispatch,
+then replaces it only when a definite original issuance result is delivered. Retry
+rejection preserves original resolution status and unresolved-save protection.
+Permanent creation/rotation read-only receipt matrices, marker-at-dispatch checks
+and actual-browser rejected-retry regressions accompany the corrected candidate.

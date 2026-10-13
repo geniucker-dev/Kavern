@@ -1,3 +1,4 @@
+import {initEditor, updateDevice, healthChanged, sessionEnded} from './editor.js';
 const base = new URL('.', location.href).pathname;
 const storageKey = `kavern-ui-auth:${base}`;
 let token = '', next = '', usersNext = '', projectsNext = '', selected = '', loaded = 0, lastActivity = 0, healthState = 'unknown', healthEpoch = 0, healthRequest = 0, detailRequest = 0, detailController = null;
@@ -32,6 +33,7 @@ function clearSelection(){
 function expire(){
   token='';
   healthState='unknown';
+  sessionEnded();
   healthEpoch++;
   healthRequest++;
   loaded++;
@@ -62,7 +64,7 @@ async function api(path, options={
   if(response.status===401){
     expire();
     throw new Error('session_expired');
-  }if(!response.ok)throw new Error(data.code||'response_unconfirmed');
+  }if(!response.ok){const failure=new Error(data.code||'response_unconfirmed');failure.outcome=data.outcome||'unconfirmed';throw failure;}
   return data;
 }
 function errorText(code){
@@ -156,6 +158,7 @@ function statusLabel(status){
 }
 function render(configuration,status,focus){
   if(healthState!=='running')throw new Error('health_unavailable');
+  updateDevice(configuration,status);
   if(configuration.Revision!==status.desired_revision){
     throw new Error('changing_revision');
   }const detail=$('detail');
@@ -200,7 +203,7 @@ async function choose(id,focus=false){
     detailMessage('Status unavailable','A current healthy daemon observation is required before showing device readiness.',true,focus);
     return;
   }
-  if(changed)detailMessage('Loading device','Obtaining a fresh server sample for '+id+'.',false,focus);
+  if(changed||focus)detailMessage('Loading device','Obtaining a fresh server sample for '+id+'.',false,focus);
   const ticket=detailRequest;
   const epoch=healthEpoch;
   const controller=new AbortController();
@@ -208,6 +211,7 @@ async function choose(id,focus=false){
   const current=()=>token&&selected===id&&ticket===detailRequest&&epoch===healthEpoch&&healthState==='running';
   try{
     const c=await api(`api/devices/${encodeURIComponent(id)}/configuration`,{signal:controller.signal});
+    c.Tunnels=c.Tunnels||[];
     if(!current())return;
     const raw=await api(`api/devices/${encodeURIComponent(id)}/status`,{signal:controller.signal});
     if(!current())return;
@@ -225,6 +229,7 @@ async function choose(id,focus=false){
 }
 function unavailableHealth(label,message){
   healthState='unavailable';
+  healthChanged(false);
   healthEpoch++;
   invalidateDetail();
   $('health').textContent=label;
@@ -245,6 +250,7 @@ async function health(){
     }
     const recovered=healthState!=='running';
     healthState='running';
+    healthChanged(true);
     $('health').textContent='Daemon running';
     $('health').className='pill ready';
     if(recovered&&selected)choose(selected);
@@ -344,11 +350,12 @@ async function boot(){
       return;
     }await health();
     await inventory();
-    if(token)notice('Read-only connection established. Configuration remains owned by the daemon.');
+    if(token)notice('Local connection established. Configuration remains owned by the daemon.');
   }catch{
     expire();
   }
 }
+initEditor({api,notice,uncertain:()=>unavailableHealth('Durability uncertain','The daemon reported commit uncertainty. Recover daemon state explicitly, then resolve the original receipt.'),healthy:()=>token&&healthState==='running',refresh:async(id)=>{await health();await inventory();if(id)await choose(id,true);else if(selected)await choose(selected);}});
 boot();
 setInterval(()=>{
   if(token&&!document.hidden&&selected)choose(selected);

@@ -146,7 +146,7 @@ func TestUIOneUseBootstrapAndEveryPrivateReadNeedsIndependentToken(t *testing.T)
 		t.Fatal("launch code replayed")
 	}
 }
-func TestUIBrowserBoundaryAndReadOnlyForwardWhitelist(t *testing.T) {
+func TestUIBrowserBoundaryAndForwardWhitelist(t *testing.T) {
 	b, code, _ := uiFixture(t)
 	cookie, token := uiBootstrap(t, b, code)
 	cases := []struct {
@@ -163,7 +163,7 @@ func TestUIBrowserBoundaryAndReadOnlyForwardWhitelist(t *testing.T) {
 			t.Fatalf("%s boundary status=%d", c.name, w.Code)
 		}
 	}
-	for _, path := range []string{"api/window", "api/recover", "api/operations/id", "api/devices/device/rotate-credential", "api/../../private", "api/users?unknown=x", "api/devices?project_id=a&project_id=b"} {
+	for _, path := range []string{"api/window?unknown=x", "api/recover", "api/operations/id", "api/devices/device/rotate-credential", "api/../../private", "api/users?unknown=x", "api/devices?project_id=a&project_id=b"} {
 		parts := strings.SplitN(path, "?", 2)
 		r := uiRequest(b, "GET", parts[0], "")
 		if len(parts) > 1 {

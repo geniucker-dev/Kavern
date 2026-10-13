@@ -22,3 +22,5 @@ func CreatePrivateCredentialFile(string) (*os.File, error) { return nil, ErrAdmi
 
 func OpenAdminRequestFile(string) (*os.File, error)      { return nil, ErrAdminSocket }
 func VerifyPrivateCredentialFile(string, *os.File) error { return ErrAdminSocket }
+
+func ValidatePrivateCredentialDirectory(string) error { return ErrAdminSocket }

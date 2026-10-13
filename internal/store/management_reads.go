@@ -113,3 +113,33 @@ func (o *ConfigOwner) DeviceUser(ctx context.Context, id domain.DeviceID) (domai
 func (o *ConfigOwner) DeviceCleanupPending(id domain.DeviceID) bool {
 	return o.work.RevokedDeviceCount(id) > 0
 }
+
+// DeviceCredentialKinds reports stored kinds even when offline or disabled. It
+// never authenticates, resolves enabled-only credentials or returns material.
+func (o *ConfigOwner) DeviceCredentialKinds(ctx context.Context, id domain.DeviceID) ([]domain.CredentialKind, error) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if e := ctx.Err(); e != nil {
+		return nil, e
+	}
+	if o.closed {
+		return nil, ErrConfigOwnerClosed
+	}
+	if o.uncertain {
+		return nil, ErrCommitUncertain
+	}
+	if _, ok := o.current.devices[id]; !ok {
+		return nil, ErrNotFound
+	}
+	kinds := []domain.CredentialKind{}
+	if _, ok := o.current.kapv1Secret[id]; ok {
+		kinds = append(kinds, domain.CredentialKindKAPv1DeviceSecret)
+	}
+	for _, c := range o.current.credentials {
+		if c.DeviceID == id && c.Kind == domain.CredentialKindLegacyNPC {
+			kinds = append(kinds, domain.CredentialKindLegacyNPC)
+			break
+		}
+	}
+	return kinds, nil
+}

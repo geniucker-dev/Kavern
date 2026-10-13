@@ -210,6 +210,25 @@ func (s *syncService) adminRequest(w http.ResponseWriter, r *http.Request) {
 		adminJSON(w, 200, config.AdminHealth{Health: "running", CleanupPending: pending})
 		return
 	}
+	if r.Method == http.MethodPost && r.URL.Path == "/admin/v1/operations/lookup" {
+		var request *config.AdminMutation
+		if config.DecodeJSON(r.Body, &request) != nil || request == nil {
+			adminJSON(w, 400, config.AdminError{Code: "invalid_request"})
+			return
+		}
+		epoch, e := request.Window.EpochValue()
+		if e != nil {
+			adminJSON(w, 400, config.AdminError{Code: "invalid_request"})
+			return
+		}
+		result, e := s.owner.LookupMutation(ctx, store.Mutation{Window: store.ManagementWindow{Lineage: request.Window.Lineage, Epoch: epoch}, OperationID: request.OperationID, Kind: request.Kind, User: request.User, Project: request.Project, Device: request.Device, Configuration: request.Configuration, DeviceID: request.DeviceID, ExpectedRevision: request.ExpectedRevision, CredentialKind: request.CredentialKind, Cascade: request.Cascade})
+		if e != nil {
+			adminError(w, e)
+			return
+		}
+		adminJSON(w, 200, adminResult(result, ""))
+		return
+	}
 	expected := ""
 	id := domain.DeviceID("")
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/admin/v1/"), "/")
@@ -337,6 +356,14 @@ func (s *syncService) adminGet(ctx context.Context, w http.ResponseWriter, r *ht
 			return
 		}
 		switch parts[2] {
+		case "credential-kinds":
+			kinds, e := s.owner.DeviceCredentialKinds(ctx, id)
+			if e != nil {
+				adminError(w, e)
+				return
+			}
+			adminJSON(w, 200, config.AdminCredentialKinds{DeviceID: id, Kinds: kinds})
+			return
 		case "configuration":
 			adminJSON(w, 200, c)
 			return

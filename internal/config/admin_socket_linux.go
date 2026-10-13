@@ -487,3 +487,13 @@ func removeOwnedRegular(dir *os.File, name string, want socketIdentity) error {
 	}
 	return syscall.Unlinkat(int(dir.Fd()), captured)
 }
+
+// ValidatePrivateCredentialDirectory verifies an existing owned private directory.
+// It does not create a directory, destination or credential.
+func ValidatePrivateCredentialDirectory(path string) error {
+	d, _, e := privateDirectory(filepath.Join(path, "kavern-credential-check"))
+	if e != nil {
+		return e
+	}
+	return d.Close()
+}

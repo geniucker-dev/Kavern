@@ -559,3 +559,30 @@ func TestMutationLookupRequiresExactRequestWindowAcrossIDReuseAndRestart(t *test
 	defer o.Close()
 	check()
 }
+func TestExactMutationLookupNeverExecutesOrAcceptsChangedContent(t *testing.T) {
+	o, _, _ := ownerFixture(t, defaultStateFiles())
+	m := Mutation{Window: mutationWindow(t, o), OperationID: "exact-read", Kind: "create_user", User: &domain.User{ID: "exact-user", Name: "original"}}
+	if _, e := o.LookupMutation(context.Background(), m); !errors.Is(e, ErrOperationExpired) {
+		t.Fatal("lookup executed unknown request", e)
+	}
+	before := mutationWindow(t, o)
+	applyMutation(t, o, m, nil)
+	after := mutationWindow(t, o)
+	r, e := o.LookupMutation(context.Background(), m)
+	if e != nil || !r.Saved || !r.Replay || r.Credential != "" {
+		t.Fatal("exact lookup result", e)
+	}
+	if mutationWindow(t, o) != after || before == after {
+		t.Fatal("lookup mutated ledger")
+	}
+	changed := m
+	changed.User = &domain.User{ID: "exact-user", Name: "tampered"}
+	if _, e = o.LookupMutation(context.Background(), changed); !errors.Is(e, ErrOperationReuse) {
+		t.Fatal("changed request claimed receipt", e)
+	}
+	changed = m
+	changed.Window.Epoch++
+	if _, e = o.LookupMutation(context.Background(), changed); !errors.Is(e, ErrOperationExpired) {
+		t.Fatal("changed original window accepted", e)
+	}
+}

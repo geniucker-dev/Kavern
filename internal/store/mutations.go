@@ -551,3 +551,37 @@ func retainDeletedTunnels(prior, next *MemoryStore) error {
 	}
 	return nil
 }
+
+// LookupMutation verifies the retained canonical request digest without submitting
+// actor work. Missing/expired receipts never authorize a new mutation.
+func (o *ConfigOwner) LookupMutation(ctx context.Context, m Mutation) (MutationResult, error) {
+	if !boundedMutation(m) || !config.ValidID(m.OperationID) {
+		return MutationResult{}, config.ErrInvalidBusinessConfig
+	}
+	data, e := json.Marshal(m)
+	if e != nil || len(data) > config.MaxJSONBytes {
+		return MutationResult{}, config.ErrInvalidBusinessConfig
+	}
+	digest := sha256.Sum256(data)
+	hash := hex.EncodeToString(digest[:])
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if e := ctx.Err(); e != nil {
+		return MutationResult{}, e
+	}
+	if o.closed {
+		return MutationResult{}, ErrConfigOwnerClosed
+	}
+	if o.uncertain {
+		return MutationResult{}, ErrCommitUncertain
+	}
+	for _, r := range o.current.management.Receipts {
+		if r.OperationID == m.OperationID && r.RequestWindow == m.Window {
+			if r.Digest != hash {
+				return MutationResult{}, ErrOperationReuse
+			}
+			return receiptResult(o.current.management, r), nil
+		}
+	}
+	return MutationResult{}, ErrOperationExpired
+}

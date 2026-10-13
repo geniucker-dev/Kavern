@@ -22,13 +22,14 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
-//go:embed ui_assets/index.html ui_assets/app.js ui_assets/style.css
+//go:embed ui_assets/index.html ui_assets/app.js ui_assets/editor.js ui_assets/style.css
 var uiAssets embed.FS
 
 const uiRequestHeader = "X-Kavern-UI-Token"
@@ -175,6 +176,7 @@ type uiBridge struct {
 	auth                           *uiAuth
 	host, origin, base, cookieName string
 	forwards                       chan struct{}
+	credentialDir                  string
 }
 
 func newUIBridge(ctx context.Context, socket string, clock session.Clock) (*uiBridge, string, error) {
@@ -284,6 +286,9 @@ func (b *uiBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "":
 			file = "index.html"
 			kind = "text/html; charset=utf-8"
+		case "editor.js":
+			file = "editor.js"
+			kind = "text/javascript; charset=utf-8"
 		case "app.js":
 			file = "app.js"
 			kind = "text/javascript; charset=utf-8"
@@ -365,12 +370,22 @@ func (b *uiBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}{true})
 		return
 	}
+	if r.Method == "POST" && (path == "api/mutations" || path == "api/recover" || path == "api/lookup") {
+		b.mutate(w, r, path)
+		return
+	}
 	if r.Method != "GET" {
-		uiFailure(w, 405, "read_only")
+		uiFailure(w, 405, "method_not_allowed")
 		return
 	}
 	if r.ContentLength != 0 || len(r.TransferEncoding) > 0 || r.Header.Get("Content-Encoding") != "" {
 		uiFailure(w, 400, "invalid_request")
+		return
+	}
+	if path == "api/capabilities" && r.URL.RawQuery == "" {
+		uiJSON(w, 200, struct {
+			Issuance bool `json:"issuance_enabled"`
+		}{b.credentialDir != ""})
 		return
 	}
 	endpoint, dst, ok := uiReadEndpoint(strings.TrimPrefix(path, "api/"), r.URL.RawQuery)
@@ -397,6 +412,10 @@ func (b *uiBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}{code, outcome})
 		return
 	}
+	if receipt, ok := dst.(*config.AdminResult); ok && receipt.Issuance != nil {
+		uiFailure(w, 502, "response_unconfirmed")
+		return
+	}
 	uiJSON(w, 200, dst)
 }
 func uiReadEndpoint(path, query string) (string, any, bool) {
@@ -405,6 +424,8 @@ func uiReadEndpoint(path, query string) (string, any, bool) {
 	switch path {
 	case "status":
 		dst = &config.AdminHealth{}
+	case "window":
+		dst = &config.AdminWindow{}
 	case "users":
 		dst = &config.AdminPage{}
 		allowed = []string{"after"}
@@ -416,6 +437,17 @@ func uiReadEndpoint(path, query string) (string, any, bool) {
 		allowed = []string{"after", "project_id"}
 	default:
 		parts := strings.Split(path, "/")
+		if len(parts) == 2 && parts[0] == "operations" && config.ValidID(parts[1]) {
+			q, e := url.ParseQuery(query)
+			if e != nil || len(q) != 2 || len(q["lineage"]) != 1 || len(q["epoch"]) != 1 {
+				return "", nil, false
+			}
+			window := config.AdminWindow{Lineage: q.Get("lineage"), Epoch: q.Get("epoch")}
+			if _, e = window.EpochValue(); e != nil {
+				return "", nil, false
+			}
+			return "/admin/v1/" + path + "?" + q.Encode(), &config.AdminResult{}, true
+		}
 		if len(parts) != 3 || parts[0] != "devices" || !config.ValidID(parts[1]) {
 			return "", nil, false
 		}
@@ -424,6 +456,8 @@ func uiReadEndpoint(path, query string) (string, any, bool) {
 			dst = &domainDeviceConfiguration{}
 		case "status":
 			dst = &config.AdminDeviceStatus{}
+		case "credential-kinds":
+			dst = &config.AdminCredentialKinds{}
 		default:
 			return "", nil, false
 		}
@@ -456,7 +490,8 @@ type domainDeviceConfiguration = domain.DeviceConfiguration
 func runUI(args []string, out, diagnostics io.Writer) error {
 	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
-	socket := fs.String("socket", "", "private daemon Unix socket (read-only UI)")
+	socket := fs.String("socket", "", "private daemon Unix socket")
+	credentialDir := fs.String("credential-dir", "", "existing private owned directory for once-only native issuance")
 	if e := fs.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
 			return nil
@@ -471,6 +506,14 @@ func runUI(args []string, out, diagnostics io.Writer) error {
 	bridge, code, e := newUIBridge(ctx, *socket, session.NewClock())
 	if e != nil {
 		return e
+	}
+	if *credentialDir != "" {
+		if !filepath.IsAbs(*credentialDir) || config.ValidatePrivateCredentialDirectory(*credentialDir) != nil {
+			bridge.client.Close()
+			bridge.auth.close()
+			return errors.New("credential directory must be absolute, existing, owned and private")
+		}
+		bridge.credentialDir = *credentialDir
 	}
 	defer bridge.client.Close()
 	defer bridge.auth.close()
