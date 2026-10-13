@@ -1,5 +1,7 @@
 # Local MVP operation
 
+> Historical local-assembly baseline. The bootstrap `limits`/agent target-map and no-WebUI descriptions below were superseded by reviewed server-owned configuration, online management, renewable lifecycle and WebUI work. For runnable current native operation, use [the root quick start](../README.md) and [current WebUI contracts](LOCAL_WEBUI.md). Historical evidence remains unchanged.
+
 The local assembly passed independent r2 review as 2b814ec; Gate 7 passed as bc11abc. Gate 8 and final local MVP acceptance passed independent review on 2026-10-09. It does not authorize deployment, public exposure, or production credential creation. The supported execution platform for the local state lock is Linux; other platforms fail closed when opening state. Ordinary tests use isolated temporary state, certificates and credentials and require neither internet nor NPC_BIN.
 
 ## Build and inspect

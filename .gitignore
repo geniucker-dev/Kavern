@@ -1,2 +1,5 @@
 .kavern-testbin/
 .kavern-observe/
+
+/build/
+/examples/native-local/__pycache__/

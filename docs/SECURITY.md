@@ -1,5 +1,7 @@
 # MVP security boundaries
 
+> Historical local-MVP security baseline. Its agent-local target-map/lifetime descriptions were superseded by authenticated server-owned snapshots and reviewed renewable lifetimes. Current local bootstrap/management boundaries and explicit scope limits are described in [the root quick start](../README.md), [WebUI contracts](LOCAL_WEBUI.md) and [ADR 0009](adr/0009-bounded-lifecycle.md). This notice does not expand historical security or compatibility evidence.
+
 Gate 8 implementation and fresh evidence passed independent review on 2026-10-09. This is a local MVP acceptance record, not an external audit or a production deployment approval.
 
 ## Authentication, transport and credentials

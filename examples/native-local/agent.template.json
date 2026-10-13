@@ -1,0 +1,6 @@
+{
+  "server": "${CONTROL_ADDRESS}",
+  "device_id": "demo-device",
+  "secret_env": "KAVERN_DEMO_DEVICE",
+  "ca_file": "${DEMO_ROOT}/tls/server.crt"
+}

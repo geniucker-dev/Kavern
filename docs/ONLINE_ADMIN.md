@@ -1,5 +1,7 @@
 # Local online administration (M2 review candidate)
 
+> The M2 scope/lifetime introduction below is historical: the reviewed local WebUI and renewable native lifecycle now exist. See [the root quick start](../README.md), [current WebUI contracts](LOCAL_WEBUI.md) and [ADR 0009](adr/0009-bounded-lifecycle.md). Current W2 adds stored credential-kind metadata and bounded exact-content receipt lookup; original CLI contracts below remain in place.
+
 The running daemon owns business state. Online commands call its bounded mutation
 actor; they do not write the state file or invoke offline commands. The native agent
 keeps server address, identity credentials and verified trust bootstrap only.

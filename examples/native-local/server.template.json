@@ -1,0 +1,8 @@
+{
+  "control_listen": "127.0.0.1:0",
+  "cert_file": "${DEMO_ROOT}/tls/server.crt",
+  "key_file": "${DEMO_ROOT}/tls/server.key",
+  "state_file": "${DEMO_ROOT}/state/state.json",
+  "master_key_env": "KAVERN_DEMO_MASTER",
+  "admin_socket": "${DEMO_ROOT}/r/admin.sock"
+}
